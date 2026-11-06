@@ -307,6 +307,8 @@ export const storageExcluded = [
   // Opening a host to a team takes its owner's own session: an agent can ask for
   // access but never grant it.
   'setHarnessTeamAccess',
+  // Consent from a person, in the app. Agent runs are refused it by design.
+  'respondToTeamShareChange',
   // Asking to join a channel-shared event, and its sharer's request list,
   // are web-app actions.
   'listJoinRequests',
