@@ -297,6 +297,10 @@ the app's notification state:
 A meeting page has none of `AppProviders`; anything rendering app messages there
 goes inside `MeetingDiscussionHost`, created by the host's render function.
 
+The Call sharing menu's pending change (approve, decline, cancel, options waiting)
+has a backend-free desktop and phone regression:
+`bunx playwright test --config src/features/channel/Call/CallControls/browser-test/playwright.config.ts`.
+
 Discussion link scrolling has a backend-free browser regression:
 `bunx playwright test --config src/lib/core/messages/browser-test/playwright.config.ts`.
 
