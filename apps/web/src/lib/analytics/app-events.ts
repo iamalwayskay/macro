@@ -272,6 +272,7 @@ export type AppEvents = {
       | 'shared_inbox_conflict'
       | 'payment_required'
       | 'no_gmail_grant'
+      | 'mailbox_connected_elsewhere'
       | 'gmail_not_granted'
       | 'failed'
       | 'exception'
