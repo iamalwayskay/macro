@@ -43,6 +43,12 @@ pub enum InitError {
     #[error("No Gmail grant available to provision from")]
     NoGmailGrant,
 
+    /// The mailbox is already an inbox under another account, which holds its Google
+    /// grant. The client tells the user to remove it there first; the other account
+    /// is never named.
+    #[error("Mailbox is already connected as an inbox in another account")]
+    MailboxConnectedElsewhere,
+
     #[error("Failed to enqueue backfill message")]
     EnqueueError,
 
@@ -72,6 +78,9 @@ pub const ALREADY_INITIALIZED_CODE: &str = "ALREADY_INITIALIZED";
 /// Stable machine-readable code for [`InitError::NoGmailGrant`].
 pub const NO_GMAIL_GRANT_CODE: &str = "NO_GMAIL_GRANT";
 
+/// Stable machine-readable code for [`InitError::MailboxConnectedElsewhere`].
+pub const MAILBOX_CONNECTED_ELSEWHERE_CODE: &str = "MAILBOX_CONNECTED_ELSEWHERE";
+
 /// Structured 400 body carrying a machine-readable code. Clients branch on
 /// `code` instead of parsing the human message.
 #[derive(Debug, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -95,6 +104,7 @@ impl InitError {
             },
             InitError::AlreadyInitialized
             | InitError::NoGmailGrant
+            | InitError::MailboxConnectedElsewhere
             | InitError::BadRequest(_)
             | InitError::Parse(_) => StatusCode::BAD_REQUEST,
             InitError::ProviderError(EmailApiError::RateLimited { .. }) => {
@@ -143,6 +153,14 @@ impl IntoResponse for InitError {
                 Json(InitErrorCodeResponse {
                     code: NO_GMAIL_GRANT_CODE.to_string(),
                     message: InitError::NoGmailGrant.to_string(),
+                }),
+            )
+                .into_response(),
+            InitError::MailboxConnectedElsewhere => (
+                status_code,
+                Json(InitErrorCodeResponse {
+                    code: MAILBOX_CONNECTED_ELSEWHERE_CODE.to_string(),
+                    message: InitError::MailboxConnectedElsewhere.to_string(),
                 }),
             )
                 .into_response(),
@@ -490,159 +508,166 @@ async fn init_user(
             (link, linked_email)
         } else {
             // Data-source path (same-user re-link or brand-new email with no prior signup).
-            if let Some(existing_link) = pg_repo
-                .link_by_fusionauth_email_provider(
-                    &user_context.fusion_user_id,
-                    &linked_email,
-                    UserProvider::Gmail,
-                )
-                .await
-                .context("Failed to check existing link by email")?
+            match data_source_target(
+                &ctx.db,
+                &pg_repo,
+                &user_context.fusion_user_id,
+                &user_context.user_id,
+                existing_owner.as_deref(),
+                &linked_email,
+            )
+            .await?
             {
-                let applied = apply_and_consume_calendar_grant(
-                    &ctx,
-                    existing_link.id,
-                    link_id,
-                    &completed_grant,
-                )
-                .await?;
-                tracing::info!(
-                    link_id = %existing_link.id,
-                    grant_version = applied.grant_version,
-                    changed = applied.changed,
-                    calendar_jobs = applied.jobs.len(),
-                    "Applied Google permission upgrade to existing inbox"
-                );
-                return Ok((
-                    StatusCode::OK,
-                    Json(InitResponse {
-                        link_id: existing_link.id,
-                        backfill_job_id: None,
-                    }),
-                )
-                    .into_response());
-            }
-
-            // The linked email is not itself a macro user, but another macro user may
-            // already have connected this exact mailbox as a data-source link. Connecting
-            // it again would store and sync a second copy of the same mailbox. Instead,
-            // promote the single existing link to a shared macro user so both connectors
-            // delegate over one link. Promotion turns the mailbox into a shared user, so
-            // it is gated behind an explicit `force_share` confirmation.
-            if existing_owner.is_none()
-                && let Some(existing_link) = email_db_client::links::get::fetch_link_by_email(
-                    &ctx.db,
-                    &linked_email,
-                    link::UserProvider::Gmail,
-                )
-                .await
-                .context("Failed to look up existing link for shared-mailbox dedup")?
-                && existing_link.macro_id.as_ref() != user_context.user_id.as_str()
-            {
-                if !force_share {
-                    return Err(InitError::SharedInboxConflict {
-                        email_address: linked_email.clone(),
-                        existing_owner_email: existing_link.macro_id.email_str().to_string(),
-                        existing_link_id: existing_link.id,
-                    });
+                DataSourceTarget::Existing { existing_link_id } => {
+                    let applied = apply_and_consume_calendar_grant(
+                        &ctx,
+                        existing_link_id,
+                        link_id,
+                        &completed_grant,
+                    )
+                    .await?;
+                    tracing::info!(
+                        link_id = %existing_link_id,
+                        grant_version = applied.grant_version,
+                        changed = applied.changed,
+                        calendar_jobs = applied.jobs.len(),
+                        "Applied Google permission upgrade to existing inbox"
+                    );
+                    return Ok((
+                        StatusCode::OK,
+                        Json(InitResponse {
+                            link_id: existing_link_id,
+                            backfill_job_id: None,
+                        }),
+                    )
+                        .into_response());
                 }
+                // The linked email is not itself a macro user, but another macro user
+                // already connected this exact mailbox as a data-source link. Connecting
+                // it again would store and sync a second copy of the same mailbox.
+                // Instead, promote the single existing link to a shared macro user so
+                // both connectors delegate over one link. Promotion turns the mailbox
+                // into a shared user, so it is gated behind an explicit `force_share`
+                // confirmation.
+                DataSourceTarget::Share(existing_link) => {
+                    if !force_share {
+                        return Err(InitError::SharedInboxConflict {
+                            email_address: linked_email.clone(),
+                            existing_owner_email: existing_link.macro_id.email_str().to_string(),
+                            existing_link_id: existing_link.id,
+                        });
+                    }
 
-                let organization_id =
-                    macro_db_client::user::get_user_organization::get_user_organization(
-                        ctx.db.clone(),
-                        existing_link.macro_id.as_ref(),
-                    )
-                    .await
-                    .context("Failed to fetch organization for shared-inbox owner")?;
+                    let organization_id =
+                        macro_db_client::user::get_user_organization::get_user_organization(
+                            ctx.db.clone(),
+                            existing_link.macro_id.as_ref(),
+                        )
+                        .await
+                        .context("Failed to fetch organization for shared-inbox owner")?;
 
-                let mut tx = ctx
-                    .db
-                    .begin()
-                    .await
-                    .context("Failed to begin shared-inbox promotion transaction")?;
-                crate::outbound::mailbox_init::lock_gmail_connection(
-                    &mut tx,
-                    &user_context.user_id,
-                    &linked_email,
-                )
-                .await
-                .map_err(InitError::MailboxInitialization)?;
-
-                let promoted = macro_db_client::shared_inbox::promote_link_to_shared(
-                    &mut tx,
-                    existing_link.id,
-                    existing_link.macro_id.as_ref(),
-                    &user_context.user_id,
-                    &linked_email,
-                    organization_id,
-                )
-                .await
-                .context("Failed to promote link to shared inbox")?;
-
-                tx.commit()
-                    .await
-                    .context("Failed to commit shared-inbox promotion transaction")?;
-
-                // Relocate the mailbox's Google grant onto a dedicated FusionAuth user so the
-                // inbox keeps syncing regardless of which connector stays. Done after the
-                // commit: if relocation fails the inbox keeps working under the original
-                // owner's grant (prior behavior) and the relocation can be retried. Once the
-                // grant has moved, the link row must point at the shared user or token
-                // fetches for this inbox fail, so the update is retried before giving up.
-                match ctx
-                    .auth_service_client
-                    .relocate_inbox_grant(
+                    let mut tx = ctx
+                        .db
+                        .begin()
+                        .await
+                        .context("Failed to begin shared-inbox promotion transaction")?;
+                    crate::outbound::mailbox_init::lock_gmail_connection(
+                        &mut tx,
+                        &user_context.user_id,
                         &linked_email,
-                        &existing_link.fusionauth_user_id,
-                        &promoted.mailbox_fusion_id.to_string(),
                     )
                     .await
-                {
-                    Ok(shared_fusionauth_user_id) => {
-                        const MAX_LINK_UPDATE_ATTEMPTS: u32 = 3;
-                        for attempt in 1..=MAX_LINK_UPDATE_ATTEMPTS {
-                            match email_db_client::links::update::update_link_fusionauth_user_id(
-                                &ctx.db,
-                                promoted.link_id,
-                                &shared_fusionauth_user_id,
-                            )
-                            .await
-                            {
-                                Ok(()) => break,
-                                Err(e) if attempt < MAX_LINK_UPDATE_ATTEMPTS => {
-                                    tracing::warn!(error=?e, attempt, "Retrying link fusionauth_user_id update after grant relocation");
-                                    tokio::time::sleep(std::time::Duration::from_millis(
-                                        200 * u64::from(attempt),
-                                    ))
-                                    .await;
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        error=?e,
-                                        link_id=%promoted.link_id,
-                                        shared_fusionauth_user_id=%shared_fusionauth_user_id,
-                                        "Failed to re-home link fusionauth_user_id after grant relocation; inbox token fetches will fail until the link is re-homed to the shared user"
-                                    );
+                    .map_err(InitError::MailboxInitialization)?;
+
+                    let promoted = macro_db_client::shared_inbox::promote_link_to_shared(
+                        &mut tx,
+                        existing_link.id,
+                        existing_link.macro_id.as_ref(),
+                        &user_context.user_id,
+                        &linked_email,
+                        organization_id,
+                    )
+                    .await
+                    .context("Failed to promote link to shared inbox")?;
+
+                    tx.commit()
+                        .await
+                        .context("Failed to commit shared-inbox promotion transaction")?;
+
+                    // Relocate the mailbox's Google grant onto a dedicated FusionAuth user so the
+                    // inbox keeps syncing regardless of which connector stays. Done after the
+                    // commit: if relocation fails the inbox keeps working under the original
+                    // owner's grant (prior behavior) and the relocation can be retried. Once the
+                    // grant has moved, the link row must point at the shared user or token
+                    // fetches for this inbox fail, so the update is retried before giving up.
+                    match ctx
+                        .auth_service_client
+                        .relocate_inbox_grant(
+                            &linked_email,
+                            &existing_link.fusionauth_user_id,
+                            &promoted.mailbox_fusion_id.to_string(),
+                        )
+                        .await
+                    {
+                        Ok(shared_fusionauth_user_id) => {
+                            const MAX_LINK_UPDATE_ATTEMPTS: u32 = 3;
+                            for attempt in 1..=MAX_LINK_UPDATE_ATTEMPTS {
+                                match email_db_client::links::update::update_link_fusionauth_user_id(
+                                    &ctx.db,
+                                    promoted.link_id,
+                                    &shared_fusionauth_user_id,
+                                )
+                                .await
+                                {
+                                    Ok(()) => break,
+                                    Err(e) if attempt < MAX_LINK_UPDATE_ATTEMPTS => {
+                                        tracing::warn!(error=?e, attempt, "Retrying link fusionauth_user_id update after grant relocation");
+                                        tokio::time::sleep(std::time::Duration::from_millis(
+                                            200 * u64::from(attempt),
+                                        ))
+                                        .await;
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            error=?e,
+                                            link_id=%promoted.link_id,
+                                            shared_fusionauth_user_id=%shared_fusionauth_user_id,
+                                            "Failed to re-home link fusionauth_user_id after grant relocation; inbox token fetches will fail until the link is re-homed to the shared user"
+                                        );
+                                    }
                                 }
                             }
                         }
+                        Err(e) => {
+                            tracing::error!(error=?e, "Failed to relocate shared-inbox grant; inbox keeps syncing under the original owner's grant");
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!(error=?e, "Failed to relocate shared-inbox grant; inbox keeps syncing under the original owner's grant");
-                    }
-                }
 
-                apply_and_consume_calendar_grant(&ctx, promoted.link_id, link_id, &completed_grant)
+                    apply_and_consume_calendar_grant(
+                        &ctx,
+                        promoted.link_id,
+                        link_id,
+                        &completed_grant,
+                    )
                     .await?;
 
-                return Ok((
-                    StatusCode::OK,
-                    Json(InitResponse {
-                        link_id: promoted.link_id,
-                        backfill_job_id: None,
-                    }),
-                )
-                    .into_response());
+                    return Ok((
+                        StatusCode::OK,
+                        Json(InitResponse {
+                            link_id: promoted.link_id,
+                            backfill_job_id: None,
+                        }),
+                    )
+                        .into_response());
+                }
+                DataSourceTarget::ConnectedElsewhere { existing_link_id } => {
+                    tracing::info!(
+                        %existing_link_id,
+                        "gmail mailbox is already an inbox in another account"
+                    );
+                    return Err(InitError::MailboxConnectedElsewhere);
+                }
+                DataSourceTarget::New => {}
             }
 
             let provisional_link = new_gmail_link(
@@ -843,6 +868,66 @@ async fn init_user(
         }),
     )
         .into_response())
+}
+
+/// Where a `/link/gmail` connect lands on the data-source path, which runs when the
+/// linked email is the caller's own address or no macro user's.
+#[derive(Debug)]
+enum DataSourceTarget {
+    /// The caller already has an inbox for the mailbox under its own FusionAuth user.
+    Existing { existing_link_id: Uuid },
+    /// The mailbox is no macro user's address and another macro user connected it, so
+    /// the connect can promote that inbox to a shared one.
+    Share(Link),
+    /// Another account already holds an inbox for the mailbox, and with it the
+    /// mailbox's Google grant, which a FusionAuth identity can hold for only one user.
+    /// The OAuth callback cannot move that grant, so a new inbox here would have no
+    /// grant to sync with.
+    ConnectedElsewhere { existing_link_id: Uuid },
+    /// Nothing holds the mailbox yet, so the connect provisions a new inbox.
+    New,
+}
+
+async fn data_source_target(
+    db: &sqlx::PgPool,
+    pg_repo: &EmailPgRepo,
+    fusion_user_id: &str,
+    user_id: &str,
+    existing_owner: Option<&str>,
+    linked_email: &str,
+) -> Result<DataSourceTarget, InitError> {
+    if let Some(existing_link) = pg_repo
+        .link_by_fusionauth_email_provider(fusion_user_id, linked_email, UserProvider::Gmail)
+        .await
+        .context("Failed to check existing link by email")?
+    {
+        return Ok(DataSourceTarget::Existing {
+            existing_link_id: existing_link.id,
+        });
+    }
+
+    // None of the mailbox's links is under the caller's FusionAuth user, so any link
+    // found here belongs to another account.
+    let Some(existing_link) = email_db_client::links::get::fetch_link_by_email(
+        db,
+        linked_email,
+        link::UserProvider::Gmail,
+    )
+    .await
+    .context("Failed to look up existing link for the mailbox")?
+    else {
+        return Ok(DataSourceTarget::New);
+    };
+
+    if existing_owner.is_none() && existing_link.macro_id.as_ref() != user_id {
+        return Ok(DataSourceTarget::Share(existing_link));
+    }
+
+    // Typically the mailbox was connected as an extra inbox in another account before
+    // its own Macro account existed.
+    Ok(DataSourceTarget::ConnectedElsewhere {
+        existing_link_id: existing_link.id,
+    })
 }
 
 /// Returns false when the link is missing or the lookup fails so token discovery remains
