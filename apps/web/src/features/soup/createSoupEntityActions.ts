@@ -34,6 +34,7 @@ import {
   openEntityInSplitFromUnifiedList,
   restoreSoupFocus,
 } from '@app/features/next-soup/utils';
+import { openAddChannelToStack } from '@app/features/notification-stacks/open-add-to-stack';
 import { useAllProperties } from '@app/features/property/editor/hooks/useAllProperties';
 import { openPropertyEditor } from '@app/features/property/editor/state/propertyEditor';
 import { useAnalytics } from '@app/lib/analytics/analytics-context';
@@ -43,13 +44,22 @@ import { globalSplitManager } from '@app/signal/splitLayout';
 import { useGlobalNotificationSource } from '@components/app/GlobalAppState';
 import type { SplitHandle } from '@components/app/split-layout/layoutManager';
 import { itemToBlockName } from '@core/constant/allBlocks';
-import { enableProjects, isFeatureEnabled } from '@core/constant/featureFlags';
+import {
+  enableNotificationStacks,
+  enableProjects,
+  isFeatureEnabled,
+} from '@core/constant/featureFlags';
 import { useUserId } from '@core/context/user';
 import { type HotkeyToken, TOKENS } from '@core/hotkey/tokens';
 import { isMobile } from '@core/mobile/isMobile';
 import { fireAndForget } from '@core/util/fireAndForget';
 import type { EntityData } from '@entity';
-import { isEmailEntity, isGithubPrEntity, isTaskEntity } from '@entity';
+import {
+  isChannelEntity,
+  isEmailEntity,
+  isGithubPrEntity,
+  isTaskEntity,
+} from '@entity';
 import { markRowNotificationsSeenOnOpen } from '@notifications/mark-row-seen';
 import { SYSTEM_PROPERTY_IDS } from '@property/constants';
 import { useIsTeamAdmin } from '@queries/team/teams';
@@ -113,6 +123,7 @@ export function createSoupEntityActions(
 } {
   const analytics = useAnalytics();
   const projectsFlag = useFeatureFlag(enableProjects);
+  const stacksFlag = useFeatureFlag(enableNotificationStacks);
   const userId = useUserId();
   const isTeamAdmin = useIsTeamAdmin();
   const notificationSource = useGlobalNotificationSource();
@@ -388,6 +399,20 @@ export function createSoupEntityActions(
           ? t('entityActions.unmuteNotifications')
           : t('entityActions.muteNotifications'),
         onClick: handle(muteAction.executeWithSoup),
+      });
+    }
+
+    // One channel only: the dialog ticks the stacks that capture it.
+    const [channel] = entities;
+    if (
+      stacksFlag().enabled &&
+      entities.length === 1 &&
+      isChannelEntity(channel)
+    ) {
+      middleItems.push({
+        id: 'add-to-stack',
+        label: t('entityActions.addToStack'),
+        onClick: () => openAddChannelToStack(channel.id),
       });
     }
 
