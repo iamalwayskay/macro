@@ -1488,6 +1488,7 @@ fn manual_notifications_push_the_senders_words() {
             name: "Macro".to_string(),
             avatar_url: Some("https://example.com/macro.png".to_string()),
         }),
+        message: None,
     };
     let entity = EntityType::Document.with_entity_str("doc-1");
 
@@ -1530,5 +1531,59 @@ fn manual_notifications_push_the_senders_words() {
     assert_ne!(
         metadata.collapse_key(&entity).into_hashed().into_inner(),
         other_title.collapse_key(&entity).into_hashed().into_inner()
+    );
+}
+
+#[test]
+fn a_manual_notification_about_a_channel_message_opens_at_the_message() {
+    let message_id = Uuid::from_u128(2);
+    let thread_id = Uuid::from_u128(3);
+    let metadata = ManualMetadata {
+        title: "Needs an answer".to_string(),
+        body: None,
+        agent: None,
+        message: Some(ManualNotificationMessage {
+            message_id,
+            thread_id: Some(thread_id),
+        }),
+    };
+    let channel_id = Uuid::from_u128(1).to_string();
+    let channel = EntityType::Channel.with_entity_str(&channel_id);
+
+    let value = serde_json::to_value(NotifEvent::Manual(metadata.clone())).unwrap();
+    assert_eq!(
+        value["content"]["message"],
+        serde_json::json!({
+            "messageId": message_id.to_string(),
+            "threadId": thread_id.to_string(),
+        })
+    );
+    let event: NotifEvent = serde_json::from_value(value).unwrap();
+    assert!(matches!(event, NotifEvent::Manual(decoded) if decoded == metadata));
+
+    let apns = metadata.as_apns(None, &channel, Uuid::nil()).unwrap();
+    assert_eq!(
+        serde_json::to_value(apns).unwrap()["navigation"],
+        serde_json::json!({
+            "type": "channel",
+            "channelId": channel_id,
+            "messageId": message_id.to_string(),
+            "threadId": thread_id.to_string(),
+        })
+    );
+
+    let other_message = ManualMetadata {
+        message: Some(ManualNotificationMessage {
+            message_id: Uuid::from_u128(4),
+            thread_id: None,
+        }),
+        ..metadata.clone()
+    };
+    assert_ne!(
+        metadata.collapse_key(&channel).into_hashed().into_inner(),
+        other_message
+            .collapse_key(&channel)
+            .into_hashed()
+            .into_inner()
     );
 }

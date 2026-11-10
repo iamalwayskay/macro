@@ -808,6 +808,22 @@ impl GraphqlManualMetadata {
             .as_ref()
             .and_then(|agent| agent.avatar_url.as_deref())
     }
+
+    /// The channel message it opens at, when the sender linked one.
+    async fn message_id(&self) -> Option<ID> {
+        self.0
+            .message
+            .map(|message| ID(message.message_id.to_string()))
+    }
+
+    /// The top-level message the linked message replies to, when it is a
+    /// reply.
+    async fn thread_id(&self) -> Option<ID> {
+        self.0
+            .message
+            .and_then(|message| message.thread_id)
+            .map(|thread| ID(thread.to_string()))
+    }
 }
 
 /// GraphQL wrapper for removed runtime access metadata.

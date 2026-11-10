@@ -1541,6 +1541,12 @@ function mapGraphqlNotificationMetadata(
                   avatarUrl: metadata.manualAgentAvatarUrl,
                 }
               : undefined,
+            message: metadata.manualMessageId
+              ? {
+                  messageId: metadata.manualMessageId,
+                  threadId: metadata.manualThreadId,
+                }
+              : undefined,
           },
         }) satisfies NotifEventMember<'manual'>
     )

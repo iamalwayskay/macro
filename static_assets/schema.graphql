@@ -6585,6 +6585,15 @@ type GraphqlManualMetadata {
 	The sending agent's avatar when it was sent.
 	"""
 	agentAvatarUrl: String
+	"""
+	The channel message it opens at, when the sender linked one.
+	"""
+	messageId: ID
+	"""
+	The top-level message the linked message replies to, when it is a
+	reply.
+	"""
+	threadId: ID
 }
 
 """

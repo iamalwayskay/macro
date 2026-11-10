@@ -4,7 +4,8 @@ use super::*;
 
 /// A notification written by its sender: a title, an optional body, and the
 /// entity it opens. The sender is the notification's `sender_id`, or nobody
-/// when people notify themselves.
+/// when people notify themselves. One about a channel message is filed under
+/// the message's channel and names the message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ManualMetadata {
@@ -16,6 +17,21 @@ pub struct ManualMetadata {
     /// The agent whose code sent it, when one did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<ManualNotificationAgent>,
+    /// The channel message it opens at, when the sender linked one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<ManualNotificationMessage>,
+}
+
+/// The channel message a manual notification points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualNotificationMessage {
+    /// The message.
+    pub message_id: Uuid,
+    /// The top-level message it replies to; absent when it is top-level
+    /// itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<Uuid>,
 }
 
 /// The agent a manual notification reads as being from, as it was when sent.
@@ -50,23 +66,42 @@ impl NotificationTitle for ManualMetadata {
 impl NotificationExtIos for ManualMetadata {
     type NotifData = PushNotificationData;
 
-    // A resend of the same title about the same entity replaces its banner.
+    // A resend of the same title about the same entity, or the same message
+    // of a channel, replaces its banner.
     fn collapse_key(&self, entity: &Entity<'_>) -> NotifCollapseKey {
-        NotifCollapseKey::new(Self::TYPE_NAME)
-            .append(&entity.entity_id)
-            .append(&self.title)
+        let key = NotifCollapseKey::new(Self::TYPE_NAME).append(&entity.entity_id);
+        match self.message {
+            Some(message) => key.append(&message.message_id.to_string()),
+            None => key,
+        }
+        .append(&self.title)
     }
 
     fn as_apns<'a>(
         &self,
         sender: Option<MacroUserIdStr<'a>>,
-        _entity: &Entity<'_>,
+        entity: &Entity<'_>,
         id: Uuid,
     ) -> Option<APNSPushNotification<Self::NotifData>> {
         let avatar = self
             .agent
             .as_ref()
             .and_then(|agent| agent.avatar_url.clone());
-        alert_apns(self, sender, id, avatar).ok()
+        match self.message {
+            // A tap opens the channel at the message, like a message push.
+            Some(message) => channel_push::channel_apns(
+                self,
+                sender,
+                id,
+                avatar,
+                entity,
+                &message.message_id.to_string(),
+                message
+                    .thread_id
+                    .map(|thread| thread.to_string())
+                    .as_deref(),
+            ),
+            None => alert_apns(self, sender, id, avatar).ok(),
+        }
     }
 }
