@@ -176,6 +176,7 @@ fn soup_response_schema_exposes_frontend_fields() {
         "activityUpdates: GraphqlActivityPatch!",
         "union GraphqlActivityPatch = GraphqlActivityEvent | GraphqlActivityInvalidation",
         "type GraphqlNotification {",
+        "lane: NotificationLane!",
         "metadata: GraphqlNotifEvent!",
     ] {
         assert_sdl_line(&sdl, expected);
