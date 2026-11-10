@@ -11,7 +11,8 @@ agent session or runtime). Built on the shared feed layer, `crates/attention_fee
 
 - `src/domain/rows.rs`: the row rules — every notification's home row,
   one message one row, one stack per top-level message and per entity's
-  comments, noise hidden in its natural row.
+  comments, a manual notification on its entity's own row, noise hidden in
+  its natural row.
 - `src/domain/service.rs`: page, recompute, done (of rows or of one notification of a
   stack), seen and undo.
 - `src/domain/policy.rs`: which groups the inbox lists.
@@ -49,6 +50,9 @@ agent session or runtime). Built on the shared feed layer, `crates/attention_fee
 
 - Groups use `CandidateKeying::FiledEntity`: a channel's group holds its
   threads, so channel rows partition the whole channel's notifications.
+- A manual notification never gets a row type of its own: `note_slot` and
+  `ChannelKind::Note` place it on the row its entity already has, so a new
+  kind of linkable entity needs a slot there or it lands on the agent row.
 - Row types, actor kinds and action kinds only grow: add values, never
   repurpose or remove them; clients skip values they do not know.
 - Only rows have an `id` in GraphQL; the client cache reads any `id` field as

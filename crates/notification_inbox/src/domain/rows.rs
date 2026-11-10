@@ -17,6 +17,10 @@
 //!   thing: replies, mentions in them, and reactions to the message itself.
 //! - **One entity, one stack of comments.** All of an entity's comments stack
 //!   on one row, whichever thread they are in.
+//! - **A note joins the row of what it is about.** A manual notification, one
+//!   its sender wrote, has no row of its own: on a channel it joins the
+//!   thread of the message it names, or the channel's top level; on anything
+//!   else it joins that entity's comments, email, event or agent row.
 //! - **Noise is hidden in its natural row:** calls starting, successful
 //!   pull request checks, reminders for events that have ended, and document
 //!   mentions of documents the viewer does not own.
@@ -128,6 +132,9 @@ enum ChannelKind<'a> {
     },
     /// An invite to the channel.
     Invite,
+    /// A manual notification: about the thread under `root` when it names a
+    /// message, otherwise about the channel.
+    Note { root: Option<Uuid> },
     /// Anything else filed under the channel, such as a call starting.
     Quiet,
 }
@@ -174,6 +181,11 @@ fn channel_view<'a>(
                 .filter(|thread| !thread.is_empty()),
         },
         NotifEvent::ChannelInvite(_) => ChannelKind::Invite,
+        NotifEvent::Manual(manual) => ChannelKind::Note {
+            root: manual
+                .message
+                .map(|message| message.thread_id.unwrap_or(message.message_id)),
+        },
         _ => ChannelKind::Quiet,
     };
     ChannelView { notification, kind }
@@ -195,6 +207,16 @@ fn place_channel(
     let views: Vec<ChannelView<'_>> = notifications
         .iter()
         .map(|notification| channel_view(notification, viewer))
+        .collect();
+
+    // A note about a message makes that message's thread a stack, so the
+    // message itself is not left behind on the channel's row.
+    let noted: HashSet<String> = views
+        .iter()
+        .filter_map(|view| match view.kind {
+            ChannelKind::Note { root } => root.map(|root| root.to_string()),
+            _ => None,
+        })
         .collect();
 
     // Threads with replies or mentions in their replies absorb their root.
@@ -255,6 +277,7 @@ fn place_channel(
             .filter(|(message, count)| **count > 1 || speakers.contains_key(*message))
             .map(|(message, _)| *message),
     );
+    active.extend(noted.iter().map(String::as_str));
 
     let thread = |root: &str| Slot::Thread(root.to_string());
     views
@@ -289,7 +312,10 @@ fn place_channel(
                     message_id,
                     thread_id: None,
                 } if active.contains(message_id) => (thread(message_id), true, false),
-                ChannelKind::Reaction { .. } | ChannelKind::Invite => (Slot::TopLevel, true, false),
+                ChannelKind::Note { root: Some(root) } => (thread(&root.to_string()), true, false),
+                ChannelKind::Reaction { .. }
+                | ChannelKind::Invite
+                | ChannelKind::Note { root: None } => (Slot::TopLevel, true, false),
                 ChannelKind::Quiet => (Slot::TopLevel, false, false),
             };
             Placed {
@@ -439,6 +465,22 @@ fn occurrence_ended(reminder: &CalendarEventReminderMetadata, now: DateTime<Utc>
     }
 }
 
+/// The row a manual notification joins outside a channel: the one its
+/// entity's own activity has, so a note reads as part of what it is about.
+fn note_slot(entity_type: EntityType) -> Slot {
+    match entity_type {
+        EntityType::EmailThread => Slot::Email,
+        EntityType::CalendarEvent => Slot::CalendarEvent,
+        EntityType::Document
+        | EntityType::Project
+        | EntityType::Initiative
+        | EntityType::CrmCompany
+        | EntityType::CrmContact => Slot::TopLevel,
+        // Chats and agent sessions, and anything without a row of its own.
+        _ => Slot::Agent,
+    }
+}
+
 /// The slot and visibility of a notification that is neither channel
 /// activity nor discussion. `None` for kinds the inbox never shows.
 fn place_event(notification: &FeedNotification, now: DateTime<Utc>) -> Option<(Slot, bool)> {
@@ -461,8 +503,8 @@ fn place_event(notification: &FeedNotification, now: DateTime<Utc>) -> Option<(S
         NotifEvent::AiResponse(_)
         | NotifEvent::AgentSessionSettled(_)
         | NotifEvent::AgentSessionWaitingForInput(_)
-        | NotifEvent::AgentSessionMentioned(_)
-        | NotifEvent::Manual(_) => (Slot::Agent, true),
+        | NotifEvent::AgentSessionMentioned(_) => (Slot::Agent, true),
+        NotifEvent::Manual(_) => (note_slot(notification.entity.entity_type), true),
         NotifEvent::GithubPrCheckRun(check) => (
             Slot::PullRequest,
             check.state != GithubPrCheckRunState::Completed,
@@ -606,22 +648,7 @@ pub fn rows(
 ) -> Vec<InboxRow> {
     let channel = group.entity().entity_type == EntityType::Channel;
     let placed: Vec<Placed> = if channel {
-        // A manual notification is about the channel, not one of its
-        // messages, so it gets its own row instead of the channel rules.
-        let (manual, messages): (Vec<FeedNotification>, Vec<FeedNotification>) =
-            notifications.iter().cloned().partition(|notification| {
-                matches!(notification.notification_metadata, NotifEvent::Manual(_))
-            });
-        let mut placed = place_channel(&messages, viewer);
-        placed.extend(manual.iter().filter_map(|notification| {
-            place_event(notification, now).map(|(slot, shown)| Placed {
-                notification: notification.clone(),
-                slot,
-                shown,
-                mention: false,
-            })
-        }));
-        placed
+        place_channel(notifications, viewer)
     } else {
         let mut placed =
             place_discussions(notifications.iter().filter_map(discussion_view).collect());
@@ -672,12 +699,14 @@ pub fn rows(
             sort_newest_first(&mut hidden);
             let unseen = match (&slot, mail) {
                 // Mail is unread while it has unread messages; a reminder
-                // that has not been seen keeps it unread too.
+                // or a note that has not been seen keeps it unread too.
                 (Slot::Email, Some(mail)) => {
                     !mail.is_read
                         || notifications.iter().any(|n| {
-                            matches!(n.notification_metadata, NotifEvent::Reminder(_))
-                                && counts_as_unseen(n)
+                            matches!(
+                                n.notification_metadata,
+                                NotifEvent::Reminder(_) | NotifEvent::Manual(_)
+                            ) && counts_as_unseen(n)
                         })
                 }
                 _ => notifications.iter().any(|n| counts_as_unseen(n)),
