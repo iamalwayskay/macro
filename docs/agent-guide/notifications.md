@@ -5,7 +5,9 @@
 Behind `enable-unified-notifications` (with GraphQL Soup), the bell below Home
 on the outer rail (`g i`) opens one list of everything that needs you, newest
 first. The flag is on in dev and comes from PostHog elsewhere;
-`VITE_ENABLE_UNIFIED_NOTIFICATIONS` overrides it locally. With the flag off the
+`VITE_ENABLE_UNIFIED_NOTIFICATIONS` overrides it locally. GraphQL Soup has no
+dev default, so a local stack shows the view only with
+`VITE_ENABLE_GRAPHQL_SOUP=true` (or the flag from PostHog). With the flag off the
 route redirects to Home once flags load, and `g i` stays on Home; with it on,
 Home keeps `g h`.
 
@@ -369,36 +371,77 @@ Desktop channel and AI composers use an `Attach files` paperclip that opens the 
 
 ## Manual notifications
 
-Agent code (ExecuteCode) and SDK scripts send a notification they write with
-`macro.notifications.send({ title, body?, link, to? })`, which calls
-`POST /user_notifications/send` on the notification service. It becomes a
-`manual` notification: in-app, desktop/browser alert and phone push, all
-subject to the recipient's preferences (**Settings → Notifications → AI →
-Agent notes** turns them off). `to` defaults to the sender; anyone else must
-already see `link`, and the sender must see it too, so a notification never
-reveals an entity. Each sender may send 60 per hour (429 after).
+Agent code (ExecuteCode) and SDK scripts put a notification they write on an
+entity with `macro.notifications.send({ title, body?, link, to? })`, which
+calls `POST /user_notifications/send` on the notification service. It becomes
+a `manual` notification: in-app, desktop/browser alert and phone push, all
+subject to each recipient's preferences (**Settings → Notifications → AI →
+Agent notes** turns them off; a muted or snoozed entity stays quiet).
+
+Sending is behind the `enable-agent-notifications` flag, read for the sender:
+with it off the call answers 403 "agent notifications are not enabled for this
+account", and 503 when the flag cannot be read. The same flag shows the Agent
+notes setting, and its entry in settings search, in the web app. On a local
+stack both sides are on for everyone; `VITE_ENABLE_AGENT_NOTIFICATIONS=false`
+turns the web side off there. A deployment asks PostHog, and the notification
+service needs `POSTHOG_API_KEY` to do so: without it nobody can send.
+
+`link` is what the notification is about: a document or task, a channel or
+one of its messages, an email thread, a folder, a project, a calendar event, a
+company or contact, a chat or a listed agent session. `to` is one user or a
+list, and defaults to the sender. The sender must be able to open `link` (404
+otherwise). Each recipient who cannot is skipped and returned in `skipped`
+with reason `no_access`; nobody is given access, and the call still succeeds
+for the others. It returns `{ notified, skipped }`. Recipients who have the
+kind turned off are in `notified`: the sender is not told their settings.
+
+Two guards stop a looping program from flooding people. The same title and
+body about the same `link` to the same recipients from the same sender is
+delivered once in each ten-minute window. Windows are fixed spans of the
+clock, so a repeat that falls in the next one is delivered again; a dropped
+repeat still answers 200. One call
+names at most 100 recipients (400 past that), and a sender can notify at most
+1,000 recipients an hour, counted per notified recipient: past that the call
+answers 429 with a message and `Retry-After`, and notifies nobody.
 
 The alert's title and body are the sender's words. An agent's notification
 reads as from the agent (its name and avatar as they were when sent); without
-an agent it reads as from the sending user. Opening one opens the link:
-documents and tasks by their file type, plus chats, channels, projects, email
-threads and agent sessions.
+an agent it reads as from the sending user.
 
-A link must be something the inbox and Home list, or the notification would
-be delivered and never shown. The service derives the allowed kinds from the
-inbox's `CANDIDATE_TYPES` and Home's candidate types, and refuses the rest
-(routines, databases, forms) with 400. It also refuses unlisted and hidden
-agent sessions (a routine's runs, unless the routine lists them). An email
-thread is accepted but shows only while it is Signal-important and not shared.
-In the unified Notifications view a manual notification is an agent row on its
-linked entity, from the agent (or the sending user when no agent sent it); on
-a channel it is its own row beside the channel's messages.
+A link must be something the Notifications view lists, or the notification
+would be delivered and never shown. The service takes the allowed kinds from
+the inbox's `CANDIDATE_TYPES` and refuses the rest (routines, databases,
+forms) with 400. It also refuses unlisted and hidden agent sessions (a
+routine's runs, unless the routine lists them). An email thread is accepted
+but shows only while it is Signal-important and not shared. Home lists the
+same kinds except companies and contacts.
 
-Verify from an agent session: ask the agent to notify you about a task, and a
-teammate who can and one who cannot see it. You get an inbox row with the
-agent's avatar and a desktop alert titled as written; clicking opens the task.
-The teammate with access gets it; the one without makes the call fail with
-403 and receives nothing.
+In the unified Notifications view a manual notification joins the row its
+entity already has, stacked with what is there, and is a **Note**:
+
+| Linked entity | Row it joins |
+| --- | --- |
+| Document, task, folder, project, company, contact | The entity's comments row |
+| Channel | The channel's row |
+| Channel message | That message's thread row |
+| Email thread | The email's row, which stays unread until the note is seen |
+| Calendar event | The event's row |
+| Chat, agent session | The agent row |
+
+The card names the sender ("Scout notified you"), then the entity, then the
+title and body. A note people send themselves without an agent names no one
+and reads "Note". Clicking the row opens the entity; a note on a channel message
+opens the channel at that message. The Notifications view lists an email
+thread only when it is in the recipient's own inbox, and a calendar event only
+for its owner or someone with a linked inbox; a note on any other still alerts
+but has no row.
+
+Verify from an agent session: ask the agent to notify you and two teammates
+about a task, one who can open it and one who cannot. You and the teammate
+with access each get a row on that task with the agent's avatar and the
+title, and a desktop alert titled as written; clicking the row opens the task.
+The agent's result lists the other teammate under `skipped`, and they receive
+nothing.
 
 ## Notification sounds
 
