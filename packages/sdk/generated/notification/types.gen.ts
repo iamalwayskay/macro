@@ -1068,7 +1068,8 @@ export type MacroUserIdStr = string;
 /**
  * A notification written by its sender: a title, an optional body, and the
  * entity it opens. The sender is the notification's `sender_id`, or nobody
- * when people notify themselves.
+ * when people notify themselves. One about a channel message is filed under
+ * the message's channel and names the message.
  */
 export type ManualMetadata = {
     agent?: null | ManualNotificationAgent;
@@ -1076,6 +1077,7 @@ export type ManualMetadata = {
      * More detail, as the sender wrote it.
      */
     body?: string | null;
+    message?: null | ManualNotificationMessage;
     /**
      * The headline, as the sender wrote it.
      */
@@ -1110,11 +1112,44 @@ export type ManualNotificationLink = {
      */
     entityId: string;
     /**
-     * One of document, chat, channel, project, email_thread or agent_session:
-     * the kinds the inbox and Home list. An agent session must be listed;
-     * an email thread shows only while it is Signal-important and not shared.
+     * One of document, chat, channel, channel_message, project, initiative,
+     * email_thread, calendar_event, crm_company, crm_contact or
+     * agent_session: the kinds the inbox lists. A channel message is filed
+     * under its channel and opens at the message. An agent session must be
+     * listed; an email thread shows only while it is Signal-important and
+     * not shared.
      */
     entityType: EntityType;
+};
+
+/**
+ * The channel message a manual notification points at.
+ */
+export type ManualNotificationMessage = {
+    /**
+     * The message.
+     */
+    messageId: string;
+    /**
+     * The top-level message it replies to; absent when it is top-level
+     * itself.
+     */
+    threadId?: string | null;
+};
+
+/**
+ * Who a manual notification was sent to. A notified recipient's own
+ * preferences can still keep it from them; that is theirs to know.
+ */
+export type ManualNotificationOutcome = {
+    /**
+     * The recipients it was queued for, in the order they were named.
+     */
+    notified: Array<string>;
+    /**
+     * The recipients it was not sent to.
+     */
+    skipped: Array<SkippedRecipient>;
 };
 
 /**
@@ -1652,14 +1687,33 @@ export type SendManualNotificationRequest = {
      */
     link: ManualNotificationLink;
     /**
-     * Who gets it; the caller when omitted. Anyone else must already be able
-     * to see `link`.
+     * Who gets it, at most 100; the caller when omitted or empty. Anyone
+     * else who cannot already see `link` is skipped, never given access.
      */
-    recipientId?: string | null;
+    recipientIds?: Array<string>;
     /**
      * The headline, at most 120 characters.
      */
     title: string;
+};
+
+/**
+ * Why a recipient was left out of a manual notification.
+ */
+export type SkipReason = 'no_access';
+
+/**
+ * A recipient a manual notification was not sent to.
+ */
+export type SkippedRecipient = {
+    /**
+     * Why they were left out.
+     */
+    reason: SkipReason;
+    /**
+     * The recipient.
+     */
+    userId: string;
 };
 
 /**
@@ -2167,7 +2221,7 @@ export type SendManualNotificationErrors = {
     400: ErrorResponse;
     401: ErrorResponse;
     /**
-     * The recipient cannot see the link
+     * Agent notifications are not enabled for the caller
      */
     403: ErrorResponse;
     /**
@@ -2175,19 +2229,23 @@ export type SendManualNotificationErrors = {
      */
     404: ErrorResponse;
     /**
-     * Too many manual notifications from this sender
+     * The sender has notified too many recipients this hour; `Retry-After` says when to try again
      */
-    429: unknown;
+    429: ErrorResponse;
     500: ErrorResponse;
+    /**
+     * Whether agent notifications are enabled for the caller could not be checked; try again
+     */
+    503: ErrorResponse;
 };
 
 export type SendManualNotificationError = SendManualNotificationErrors[keyof SendManualNotificationErrors];
 
 export type SendManualNotificationResponses = {
     /**
-     * Queued for delivery
+     * Queued for the recipients who can see the link
      */
-    204: void;
+    200: ManualNotificationOutcome;
 };
 
 export type SendManualNotificationResponse = SendManualNotificationResponses[keyof SendManualNotificationResponses];

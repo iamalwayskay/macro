@@ -17,12 +17,20 @@ worker that sends email/mobile-push/websocket notifications.
   (list/read), `unsubscribe.rs` (single and atomic bulk item mute/snooze), `health.rs`.
 - `src/manual.rs` + `src/api/manual_notification.rs`: manual notifications
   (`POST /user_notifications/send`, the SDK's `notifications.send`). The
-  domain checks that sender and recipient can see the link, that the inbox
-  and Home list it (types from `notification_inbox`'s `CANDIDATE_TYPES` and
-  `work_feed`'s candidate types; agent sessions must be listed), snapshots the
-  sending agent, and enqueues through the notification ingress; the route
-  limits each sender to 60 an hour. It lives here, not in
+  domain checks that the sender can see the link and that the inbox lists
+  its kind (`notification_inbox`'s `CANDIDATE_TYPES`; agent sessions must be
+  listed), skips and reports each recipient who cannot see it, snapshots the
+  sending agent, and enqueues through the notification ingress. A channel
+  message link is read through the message service
+  (`src/manual/channel_messages.rs`) and filed under its channel. Its
+  notification ids are derived from sender, entity, recipients, text and the
+  fixed ten-minute window the send falls in, so the ingress drops a repeat in
+  the same window; `src/manual/allowance.rs`
+  caps each sender at 1,000 notified recipients an hour. It lives here, not in
   `crates/notification`, because `model_notifications` depends on that crate.
+- `src/manual/flags.rs`: where the `enable-agent-notifications` flag is read
+  from. `ManualNotifications::send` reads it for the sender before anything
+  else.
 - `src/model/notification.rs`: service-local request/response shapes.
 - Push payload schemas come from `notification::domain::models::apple`; keep the
   frontend push validators generated from those same OpenAPI components.
@@ -54,7 +62,9 @@ worker that sends email/mobile-push/websocket notifications.
 - `src/manual/test/delivered.rs` sends a manual notification for every
   linkable kind and reads it back through the real inbox and Home services
   over Soup; a kind that becomes linkable needs an entity in
-  `fixtures/manual_links.sql`, or the test fails.
+  `fixtures/manual_links.sql`, or the test fails. Calendar events, companies
+  and contacts are the exception: Soup lists them through services that
+  harness stubs, so the test names them in `NOT_LISTED_HERE`.
 
 - PostgreSQL delete forwarding emits `notification.delete.publish` spans and
   logs publication failures. The retention Lambda is a separate binary/role;
@@ -62,6 +72,11 @@ worker that sends email/mobile-push/websocket notifications.
 
 - Don't log notification payloads on tracing spans (#7892) — they can carry
   sensitive content; log ids/types instead.
+- Manual notifications are flag-gated per sender. A local stack has no PostHog
+  project, so they are on for everyone there; a deployment reads PostHog with
+  the optional `POSTHOG_API_KEY` (and `POSTHOG_HOST`), and without the key
+  they are off: `/user_notifications/send` answers 403. A flag that cannot be
+  read answers 503, never a send.
 - `SES_CONFIGURATION_SET` is optional. When set, every notification email is
   sent through that SES configuration set and tagged `notification_type`, so
   its event destination reports delivery, bounce, open and click per type. Set

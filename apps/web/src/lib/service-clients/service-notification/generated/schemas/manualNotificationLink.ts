@@ -12,8 +12,11 @@ import type { EntityType } from './entityType';
 export interface ManualNotificationLink {
   /** The entity's id. */
   entityId: string;
-  /** One of document, chat, channel, project, email_thread or agent_session:
-the kinds the inbox and Home list. An agent session must be listed;
-an email thread shows only while it is Signal-important and not shared. */
+  /** One of document, chat, channel, channel_message, project, initiative,
+email_thread, calendar_event, crm_company, crm_contact or
+agent_session: the kinds the inbox lists. A channel message is filed
+under its channel and opens at the message. An agent session must be
+listed; an email thread shows only while it is Signal-important and
+not shared. */
   entityType: EntityType;
 }

@@ -1,6 +1,10 @@
 //! Manual notifications sent through the real access checks and ingress land
 //! in the inbox and on Home, read through their real policies and Soup's
 //! candidate query.
+//!
+//! Calendar events, companies and contacts are linkable too, but this
+//! harness cannot list them: Soup reads calendars and CRM records through
+//! services it stubs here. Their rows are covered by the inbox's row tests.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -11,6 +15,7 @@ use attention_feed::outbound::soup::SoupCandidateSource;
 use attention_feed::test_support::{FakeMail, FakeSignals};
 use channels::domain::list_service::ChannelListServiceImpl;
 use channels::outbound::pg_channels_repo::PgChannelsRepo;
+use chrono::Utc;
 use crm::domain::service::NoOpCrmService;
 use email::domain::ports::ReadonlyEmailPreviewAdapter;
 use email::domain::service::EmailServiceImpl;
@@ -22,6 +27,9 @@ use frecency::outbound::postgres::FrecencyPgStorage;
 use github_pull_requests::domain::service::GithubPullRequestServiceImpl;
 use github_pull_requests::outbound::pg_github_pull_request_repo::PgGithubPullRequestRepo;
 use macro_db_migrator::MACRO_DB_MIGRATIONS;
+use messages::domain::ports::NoMessageEventPublisher;
+use messages::domain::service::MessageService;
+use messages::outbound::pg_message_repo::PgMessageRepository;
 use model_entity::{Entity, EntityType};
 use model_notifications::NotifEvent;
 use notification::domain::models::UserNotificationRow;
@@ -47,26 +55,38 @@ use sqlx::{Pool, Postgres};
 use work_feed::domain::models::{WorkFeedMode, WorkFeedQuery, WorkFeedScope};
 use work_feed::domain::service::{WorkFeedService, WorkFeedServiceImpl};
 
+use super::super::channel_messages::ChannelMessageLinks;
 use super::super::entity_access::EntityAccessLinks;
 use super::super::sessions::PgSessionListing;
 use super::super::{
     ACCESS_CHECKED_TYPES, ManualNotificationDraft, ManualNotificationError, ManualNotifications,
-    ManualSender, shown_in_inbox_and_home,
+    ManualSender, shown_in_inbox,
 };
-use super::{OneAgent, user};
+use super::{FixedAllowance, OneAgent, SenderFlag, user};
 
 const USER_1: &str = "macro|user-1@example.com";
 const LISTED_SESSION: &str = "77777777-0000-0000-0000-000000000001";
 const UNLISTED_SESSION: &str = "77777777-0000-0000-0000-000000000002";
 const HIDDEN_SESSION: &str = "77777777-0000-0000-0000-000000000003";
+const CHANNEL: &str = "33333333-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const CHANNEL_MESSAGE: &str = "99999999-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+/// Kinds the inbox lists that this harness cannot read back; see the module
+/// docs.
+const NOT_LISTED_HERE: [EntityType; 3] = [
+    EntityType::CalendarEvent,
+    EntityType::CrmCompany,
+    EntityType::CrmContact,
+];
 
 /// The fixture entity of each kind a manual notification can link to.
 fn fixture_entity(entity_type: EntityType) -> Option<&'static str> {
     match entity_type {
         EntityType::Document => Some("11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
         EntityType::Chat => Some("22222222-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-        EntityType::Channel => Some("33333333-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+        EntityType::Channel => Some(CHANNEL),
         EntityType::Project => Some("66666666-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+        EntityType::Initiative => Some("88888888-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
         EntityType::EmailThread => Some("44444444-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
         EntityType::AgentSession => Some(LISTED_SESSION),
         _ => None,
@@ -144,7 +164,7 @@ fn sender() -> ManualSender {
 
 fn draft(link: Entity<'static>) -> ManualNotificationDraft {
     ManualNotificationDraft {
-        recipient: None,
+        recipients: Vec::new(),
         title: format!("{} finished", link.entity_type),
         body: None,
         link,
@@ -165,14 +185,22 @@ fn viewer() -> FeedViewer {
 async fn every_linkable_kind_reaches_the_inbox_and_home_and_the_rest_are_refused(
     pool: Pool<Postgres>,
 ) {
+    let access = entity_access::domain::service::EntityAccessServiceImpl::new(
+        entity_access::outbound::PgAccessRepository::new(pool.clone()),
+    );
     let notifications = ManualNotifications {
-        access: EntityAccessLinks(
-            entity_access::domain::service::EntityAccessServiceImpl::new(
-                entity_access::outbound::PgAccessRepository::new(pool.clone()),
-            ),
-        ),
+        flags: SenderFlag::On,
+        access: EntityAccessLinks(access.clone()),
         sessions: PgSessionListing(pool.clone()),
+        messages: ChannelMessageLinks {
+            access,
+            messages: MessageService::new(
+                PgMessageRepository::new(pool.clone()),
+                NoMessageEventPublisher,
+            ),
+        },
         agents: OneAgent,
+        allowance: FixedAllowance::of(1000),
         ingress: NotificationIngressService::new(
             DbNotificationRepository::new(pool.clone()),
             NoDelivery,
@@ -182,25 +210,21 @@ async fn every_linkable_kind_reaches_the_inbox_and_home_and_the_rest_are_refused
 
     let mut sent = Vec::new();
     for entity_type in ACCESS_CHECKED_TYPES {
-        let result = match fixture_entity(entity_type) {
-            Some(id) => {
-                notifications
-                    .send(
-                        sender(),
-                        draft(entity_type.with_entity_string(id.to_string())),
-                    )
-                    .await
-            }
-            None => {
-                notifications
-                    .send(
-                        sender(),
-                        draft(entity_type.with_entity_string(uuid::Uuid::now_v7().to_string())),
-                    )
-                    .await
-            }
-        };
-        if shown_in_inbox_and_home(entity_type) {
+        if NOT_LISTED_HERE.contains(&entity_type) {
+            assert!(shown_in_inbox(entity_type), "{entity_type}");
+            continue;
+        }
+        let id = fixture_entity(entity_type)
+            .map(str::to_string)
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let result = notifications
+            .send(
+                sender(),
+                draft(entity_type.with_entity_string(id)),
+                Utc::now(),
+            )
+            .await;
+        if shown_in_inbox(entity_type) {
             let id = fixture_entity(entity_type)
                 .unwrap_or_else(|| panic!("give the fixture a {entity_type} to link to"));
             result.unwrap_or_else(|error| panic!("{entity_type}: {error:?}"));
@@ -219,16 +243,28 @@ async fn every_linkable_kind_reaches_the_inbox_and_home_and_the_rest_are_refused
             EntityType::Chat,
             EntityType::Channel,
             EntityType::Project,
+            EntityType::Initiative,
             EntityType::EmailThread,
             EntityType::AgentSession,
         ]
     );
+
+    // A channel message is linked by itself and filed under its channel.
+    notifications
+        .send(
+            sender(),
+            draft(EntityType::ChannelMessage.with_entity_string(CHANNEL_MESSAGE.to_string())),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
 
     for session in [UNLISTED_SESSION, HIDDEN_SESSION] {
         let refused = notifications
             .send(
                 sender(),
                 draft(EntityType::AgentSession.with_entity_string(session.to_string())),
+                Utc::now(),
             )
             .await;
         assert!(
@@ -245,8 +281,16 @@ async fn every_linkable_kind_reaches_the_inbox_and_home_and_the_rest_are_refused
     .unwrap();
     assert_eq!(
         stored.len(),
-        sent.len(),
-        "only the accepted links were stored"
+        sent.len() + 1,
+        "only the accepted links, and the channel message's, were stored"
+    );
+    assert_eq!(
+        stored
+            .iter()
+            .filter(|(entity_type, id)| entity_type == "channel" && id == CHANNEL)
+            .count(),
+        2,
+        "the channel's own note and the one on its message"
     );
 
     let frecency_storage = FrecencyPgStorage::new(pool.clone());

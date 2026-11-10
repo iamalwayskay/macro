@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use bot_id::BotId;
+use chrono::{DateTime, TimeDelta, Utc};
+use feature_flags::{FeatureFlags, FlagSnapshot, FlagValue};
 use macro_user_id::cowlike::CowLike;
 use macro_user_id::user_id::MacroUserIdStr;
 use model_entity::{Entity, EntityType};
@@ -12,12 +15,18 @@ use rootcause::Report;
 use serde::Serialize;
 use uuid::Uuid;
 
+use super::flags::AGENT_NOTIFICATIONS_FLAG;
 use super::{
-    AgentProfiles, LinkAccess, ManualNotificationDraft, ManualNotificationError,
-    ManualNotifications, ManualSender, SessionListing,
+    AgentProfiles, AllowanceExceeded, ChannelMessages, DEDUPE_WINDOW, LinkAccess, LocatedMessage,
+    MAX_RECIPIENTS, ManualNotificationDraft, ManualNotificationError, ManualNotificationOutcome,
+    ManualNotifications, ManualSender, SendAllowance, SessionListing, SkipReason, SkippedRecipient,
 };
 
 mod delivered;
+
+const CHANNEL: Uuid = Uuid::from_u128(0xC0);
+const MESSAGE: Uuid = Uuid::from_u128(0x101);
+const ROOT: Uuid = Uuid::from_u128(0x7A);
 
 /// Records every request as JSON, the way the SQS ingress would serialize it.
 #[derive(Default)]
@@ -39,6 +48,27 @@ impl NotificationIngress for RecordingIngress {
             .unwrap()
             .push(serde_json::to_value(&req).unwrap());
         Ok(None)
+    }
+}
+
+/// What the flag provider says about every sender.
+enum SenderFlag {
+    On,
+    Off,
+    Unreadable,
+}
+
+impl FeatureFlags for SenderFlag {
+    async fn load(&self, _user: &MacroUserIdStr<'_>) -> Result<FlagSnapshot, Report> {
+        let enabled = match self {
+            Self::On => true,
+            Self::Off => false,
+            Self::Unreadable => return Err(rootcause::report!("flag provider timed out")),
+        };
+        Ok(FlagSnapshot::new([(
+            AGENT_NOTIFICATIONS_FLAG.to_string(),
+            FlagValue::Boolean(enabled),
+        )]))
     }
 }
 
@@ -66,6 +96,62 @@ impl SessionListing for ListedSessions {
     }
 }
 
+/// Knows one reply in a channel thread, readable by the channel's members.
+struct OneMessage;
+
+impl ChannelMessages for OneMessage {
+    async fn locate(
+        &self,
+        user: &MacroUserIdStr<'_>,
+        message_id: &str,
+    ) -> Result<Option<LocatedMessage>, Report> {
+        let member =
+            ["macro|sender@macro.com", "macro|teammate@macro.com"].contains(&user.as_ref());
+        Ok(
+            (member && message_id == MESSAGE.to_string()).then_some(LocatedMessage {
+                channel_id: CHANNEL,
+                message_id: MESSAGE,
+                thread_id: Some(ROOT),
+            }),
+        )
+    }
+}
+
+/// An allowance of `limit` notifications that never refills, recording what
+/// each sender took.
+struct FixedAllowance {
+    limit: u64,
+    taken: Mutex<Vec<(String, u64)>>,
+}
+
+impl FixedAllowance {
+    fn of(limit: u64) -> Self {
+        Self {
+            limit,
+            taken: Mutex::default(),
+        }
+    }
+}
+
+impl SendAllowance for FixedAllowance {
+    async fn take(
+        &self,
+        sender: &MacroUserIdStr<'_>,
+        notifications: u64,
+    ) -> Result<Result<(), AllowanceExceeded>, Report> {
+        let mut taken = self.taken.lock().unwrap();
+        let used: u64 = taken.iter().map(|(_, count)| count).sum();
+        if used + notifications > self.limit {
+            return Ok(Err(AllowanceExceeded {
+                limit: self.limit,
+                retry_after: Duration::from_secs(25 * 60 + 1),
+            }));
+        }
+        taken.push((sender.as_ref().to_string(), notifications));
+        Ok(Ok(()))
+    }
+}
+
 /// Knows one agent, the one the sending code runs as.
 struct OneAgent;
 
@@ -85,15 +171,74 @@ fn user(id: &str) -> MacroUserIdStr<'static> {
     MacroUserIdStr::parse_from_str(id).unwrap().into_owned()
 }
 
-fn service(
-    grants: &[(&'static str, &'static str)],
-) -> ManualNotifications<GrantedAccess, ListedSessions, OneAgent, RecordingIngress> {
+type Notifications = ManualNotifications<
+    SenderFlag,
+    GrantedAccess,
+    ListedSessions,
+    OneMessage,
+    OneAgent,
+    FixedAllowance,
+    RecordingIngress,
+>;
+
+fn service(grants: &[(&'static str, &'static str)]) -> Notifications {
     ManualNotifications {
+        flags: SenderFlag::On,
         access: GrantedAccess(grants.iter().copied().collect()),
         sessions: ListedSessions,
+        messages: OneMessage,
         agents: OneAgent,
+        allowance: FixedAllowance::of(1000),
         ingress: RecordingIngress::default(),
     }
+}
+
+/// `minutes` after an instant that starts a dedupe window.
+fn at(minutes: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp(DEDUPE_WINDOW.num_seconds() * 1_000_000, 0).unwrap()
+        + TimeDelta::minutes(minutes)
+}
+
+fn sender() -> ManualSender {
+    ManualSender {
+        user: user("macro|sender@macro.com"),
+        agent_id: None,
+    }
+}
+
+fn draft(recipients: &[&str], link: Entity<'static>) -> ManualNotificationDraft {
+    ManualNotificationDraft {
+        recipients: recipients.iter().map(|id| user(id)).collect(),
+        title: "Look at this".to_string(),
+        body: None,
+        link,
+    }
+}
+
+fn document() -> Entity<'static> {
+    EntityType::Document.with_entity_string("doc-1".to_string())
+}
+
+fn notified(recipients: &[&str]) -> ManualNotificationOutcome {
+    ManualNotificationOutcome {
+        notified: recipients.iter().map(|id| user(id)).collect(),
+        skipped: Vec::new(),
+    }
+}
+
+fn no_access(recipient: &str) -> SkippedRecipient {
+    SkippedRecipient {
+        user_id: user(recipient),
+        reason: SkipReason::NoAccess,
+    }
+}
+
+/// The recipients of a recorded request, sorted.
+fn recipients_of(request: &serde_json::Value) -> Vec<String> {
+    let mut recipients: Vec<String> =
+        serde_json::from_value(request["req"]["recipient_ids"].clone()).unwrap();
+    recipients.sort();
+    recipients
 }
 
 #[tokio::test]
@@ -103,22 +248,24 @@ async fn notifies_a_recipient_who_can_see_the_link_from_the_sender() {
         ("macro|teammate@macro.com", "doc-1"),
     ]);
 
-    notifications
+    let outcome = notifications
         .send(
             ManualSender {
                 user: user("macro|sender@macro.com"),
                 agent_id: Some(BotId::new_from_uuid(Uuid::from_u128(0xB07))),
             },
             ManualNotificationDraft {
-                recipient: Some(user("macro|teammate@macro.com")),
+                recipients: vec![user("macro|teammate@macro.com")],
                 title: "  Deploy finished ".to_string(),
                 body: Some("All 3 services are live.".to_string()),
-                link: EntityType::Document.with_entity_string("doc-1".to_string()),
+                link: document(),
             },
+            at(0),
         )
         .await
         .unwrap();
 
+    assert_eq!(outcome, notified(&["macro|teammate@macro.com"]));
     let sent = notifications.ingress.sent.lock().unwrap();
     assert_eq!(sent.len(), 1);
     let request = &sent[0];
@@ -141,10 +288,7 @@ async fn notifies_a_recipient_who_can_see_the_link_from_the_sender() {
         })
     );
     assert_eq!(request["req"]["sender_id"], "macro|sender@macro.com");
-    assert_eq!(
-        request["req"]["recipient_ids"],
-        serde_json::json!(["macro|teammate@macro.com"])
-    );
+    assert_eq!(recipients_of(request), ["macro|teammate@macro.com"]);
     assert_eq!(
         request["build_apns"]["notif"]["aps"]["alert"],
         serde_json::json!({ "title": "Deploy finished", "body": "All 3 services are live." })
@@ -156,28 +300,24 @@ async fn notifies_a_recipient_who_can_see_the_link_from_the_sender() {
 async fn a_note_to_oneself_has_no_sender_so_the_ingress_keeps_it() {
     let notifications = service(&[("macro|sender@macro.com", "session-1")]);
 
-    notifications
+    let outcome = notifications
         .send(
-            ManualSender {
-                user: user("macro|sender@macro.com"),
-                agent_id: None,
-            },
+            sender(),
             ManualNotificationDraft {
-                recipient: None,
+                recipients: Vec::new(),
                 title: "3 new leads".to_string(),
                 body: Some("   ".to_string()),
                 link: EntityType::AgentSession.with_entity_string("session-1".to_string()),
             },
+            at(0),
         )
         .await
         .unwrap();
 
+    assert_eq!(outcome, notified(&["macro|sender@macro.com"]));
     let sent = notifications.ingress.sent.lock().unwrap();
     assert_eq!(sent[0]["req"]["sender_id"], serde_json::Value::Null);
-    assert_eq!(
-        sent[0]["req"]["recipient_ids"],
-        serde_json::json!(["macro|sender@macro.com"])
-    );
+    assert_eq!(recipients_of(&sent[0]), ["macro|sender@macro.com"]);
     assert_eq!(
         sent[0]["req"]["notification"],
         serde_json::json!({ "tag": "manual", "content": { "title": "3 new leads" } })
@@ -185,28 +325,186 @@ async fn a_note_to_oneself_has_no_sender_so_the_ingress_keeps_it() {
 }
 
 #[tokio::test]
-async fn never_tells_a_recipient_about_something_they_cannot_see() {
+async fn skips_and_reports_recipients_who_cannot_see_the_link() {
+    let notifications = service(&[
+        ("macro|sender@macro.com", "doc-1"),
+        ("macro|teammate@macro.com", "doc-1"),
+        ("macro|reviewer@macro.com", "doc-1"),
+    ]);
+
+    let outcome = notifications
+        .send(
+            sender(),
+            draft(
+                &[
+                    "macro|teammate@macro.com",
+                    "macro|outsider@macro.com",
+                    "macro|reviewer@macro.com",
+                    // Named twice, told once.
+                    "macro|teammate@macro.com",
+                ],
+                document(),
+            ),
+            at(0),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        ManualNotificationOutcome {
+            notified: vec![
+                user("macro|teammate@macro.com"),
+                user("macro|reviewer@macro.com"),
+            ],
+            skipped: vec![no_access("macro|outsider@macro.com")],
+        }
+    );
+    let sent = notifications.ingress.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        recipients_of(&sent[0]),
+        ["macro|reviewer@macro.com", "macro|teammate@macro.com"]
+    );
+}
+
+#[tokio::test]
+async fn sends_nothing_when_no_recipient_can_see_the_link() {
     let notifications = service(&[("macro|sender@macro.com", "doc-1")]);
 
-    let error = notifications
+    let outcome = notifications
         .send(
-            ManualSender {
-                user: user("macro|sender@macro.com"),
-                agent_id: None,
-            },
-            ManualNotificationDraft {
-                recipient: Some(user("macro|outsider@macro.com")),
-                title: "Look at this".to_string(),
-                body: None,
-                link: EntityType::Document.with_entity_string("doc-1".to_string()),
-            },
+            sender(),
+            draft(&["macro|outsider@macro.com"], document()),
+            at(0),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        ManualNotificationOutcome {
+            notified: Vec::new(),
+            skipped: vec![no_access("macro|outsider@macro.com")],
+        }
+    );
+    assert!(notifications.ingress.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_sender_among_the_recipients_gets_a_copy_with_no_sender() {
+    let notifications = service(&[
+        ("macro|sender@macro.com", "doc-1"),
+        ("macro|teammate@macro.com", "doc-1"),
+    ]);
+
+    let outcome = notifications
+        .send(
+            sender(),
+            draft(
+                &["macro|sender@macro.com", "macro|teammate@macro.com"],
+                document(),
+            ),
+            at(0),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        notified(&["macro|sender@macro.com", "macro|teammate@macro.com"])
+    );
+    let sent = notifications.ingress.sent.lock().unwrap();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0]["req"]["sender_id"], "macro|sender@macro.com");
+    assert_eq!(recipients_of(&sent[0]), ["macro|teammate@macro.com"]);
+    assert_eq!(sent[1]["req"]["sender_id"], serde_json::Value::Null);
+    assert_eq!(recipients_of(&sent[1]), ["macro|sender@macro.com"]);
+}
+
+#[tokio::test]
+async fn a_channel_message_is_filed_under_its_channel_and_names_the_message() {
+    let channel = CHANNEL.to_string();
+    // Leaked so the grants can borrow it for the test's whole life.
+    let channel: &'static str = channel.leak();
+    let notifications = service(&[("macro|teammate@macro.com", channel)]);
+
+    let outcome = notifications
+        .send(
+            sender(),
+            draft(
+                &["macro|teammate@macro.com", "macro|outsider@macro.com"],
+                EntityType::ChannelMessage.with_entity_string(MESSAGE.to_string()),
+            ),
+            at(0),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        ManualNotificationOutcome {
+            notified: vec![user("macro|teammate@macro.com")],
+            skipped: vec![no_access("macro|outsider@macro.com")],
+        }
+    );
+    let sent = notifications.ingress.sent.lock().unwrap();
+    assert_eq!(
+        sent[0]["req"]["notification_entity"],
+        serde_json::json!({ "entity_type": "channel", "entity_id": channel })
+    );
+    assert_eq!(
+        sent[0]["req"]["notification"]["content"]["message"],
+        serde_json::json!({
+            "messageId": MESSAGE.to_string(),
+            "threadId": ROOT.to_string(),
+        })
+    );
+    assert_eq!(
+        sent[0]["build_apns"]["notif"]["navigation"],
+        serde_json::json!({
+            "type": "channel",
+            "channelId": channel,
+            "messageId": MESSAGE.to_string(),
+            "threadId": ROOT.to_string(),
+        })
+    );
+}
+
+#[tokio::test]
+async fn refuses_a_message_the_sender_cannot_read() {
+    let notifications = service(&[]);
+
+    let unknown = notifications
+        .send(
+            sender(),
+            draft(
+                &[],
+                EntityType::ChannelMessage.with_entity_string(ROOT.to_string()),
+            ),
+            at(0),
         )
         .await
         .unwrap_err();
+    assert!(matches!(unknown, ManualNotificationError::LinkNotFound));
 
+    let not_a_member = notifications
+        .send(
+            ManualSender {
+                user: user("macro|outsider@macro.com"),
+                agent_id: None,
+            },
+            draft(
+                &[],
+                EntityType::ChannelMessage.with_entity_string(MESSAGE.to_string()),
+            ),
+            at(0),
+        )
+        .await
+        .unwrap_err();
     assert!(matches!(
-        error,
-        ManualNotificationError::RecipientCannotSeeLink
+        not_a_member,
+        ManualNotificationError::LinkNotFound
     ));
     assert!(notifications.ingress.sent.lock().unwrap().is_empty());
 }
@@ -217,16 +515,9 @@ async fn refuses_a_link_the_sender_cannot_see() {
 
     let error = notifications
         .send(
-            ManualSender {
-                user: user("macro|sender@macro.com"),
-                agent_id: None,
-            },
-            ManualNotificationDraft {
-                recipient: Some(user("macro|teammate@macro.com")),
-                title: "Look at this".to_string(),
-                body: None,
-                link: EntityType::Document.with_entity_string("doc-1".to_string()),
-            },
+            sender(),
+            draft(&["macro|teammate@macro.com"], document()),
+            at(0),
         )
         .await
         .unwrap_err();
@@ -236,54 +527,64 @@ async fn refuses_a_link_the_sender_cannot_see() {
 }
 
 #[tokio::test]
+async fn links_to_every_kind_of_entity_the_inbox_lists() {
+    let notifications = service(&[("macro|sender@macro.com", "entity-1")]);
+
+    for entity_type in [
+        EntityType::Document,
+        EntityType::Chat,
+        EntityType::Channel,
+        EntityType::Project,
+        EntityType::Initiative,
+        EntityType::EmailThread,
+        EntityType::CalendarEvent,
+        EntityType::CrmCompany,
+        EntityType::CrmContact,
+        EntityType::AgentSession,
+    ] {
+        let outcome = notifications
+            .send(
+                sender(),
+                draft(&[], entity_type.with_entity_string("entity-1".to_string())),
+                at(0),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome,
+            notified(&["macro|sender@macro.com"]),
+            "{entity_type}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn refuses_blank_or_oversized_text_and_unlinkable_entities() {
     let notifications = service(&[
         ("macro|sender@macro.com", "doc-1"),
         ("macro|sender@macro.com", "user-1"),
     ]);
-    let sender = || ManualSender {
-        user: user("macro|sender@macro.com"),
-        agent_id: None,
+    let text = |title: &str, body: Option<String>| ManualNotificationDraft {
+        recipients: Vec::new(),
+        title: title.to_string(),
+        body,
+        link: document(),
     };
 
     let blank = notifications
-        .send(
-            sender(),
-            ManualNotificationDraft {
-                recipient: None,
-                title: " \n ".to_string(),
-                body: None,
-                link: EntityType::Document.with_entity_string("doc-1".to_string()),
-            },
-        )
+        .send(sender(), text(" \n ", None), at(0))
         .await
         .unwrap_err();
     assert!(matches!(blank, ManualNotificationError::EmptyTitle));
 
     let long_title = notifications
-        .send(
-            sender(),
-            ManualNotificationDraft {
-                recipient: None,
-                title: "a".repeat(121),
-                body: None,
-                link: EntityType::Document.with_entity_string("doc-1".to_string()),
-            },
-        )
+        .send(sender(), text(&"a".repeat(121), None), at(0))
         .await
         .unwrap_err();
     assert!(matches!(long_title, ManualNotificationError::TitleTooLong));
 
     let long_body = notifications
-        .send(
-            sender(),
-            ManualNotificationDraft {
-                recipient: None,
-                title: "Done".to_string(),
-                body: Some("é".repeat(1001)),
-                link: EntityType::Document.with_entity_string("doc-1".to_string()),
-            },
-        )
+        .send(sender(), text("Done", Some("é".repeat(1001))), at(0))
         .await
         .unwrap_err();
     assert!(matches!(long_body, ManualNotificationError::BodyTooLong));
@@ -291,12 +592,11 @@ async fn refuses_blank_or_oversized_text_and_unlinkable_entities() {
     let user_link = notifications
         .send(
             sender(),
-            ManualNotificationDraft {
-                recipient: None,
-                title: "Done".to_string(),
-                body: None,
-                link: EntityType::User.with_entity_string("user-1".to_string()),
-            },
+            draft(
+                &[],
+                EntityType::User.with_entity_string("user-1".to_string()),
+            ),
+            at(0),
         )
         .await
         .unwrap_err();
@@ -309,7 +609,187 @@ async fn refuses_blank_or_oversized_text_and_unlinkable_entities() {
 }
 
 #[tokio::test]
-async fn refuses_links_the_inbox_and_home_never_list() {
+async fn refuses_more_recipients_than_one_notification_can_name() {
+    let notifications = service(&[("macro|sender@macro.com", "doc-1")]);
+    let crowd = |count: usize| ManualNotificationDraft {
+        recipients: (0..count)
+            .map(|n| user(&format!("macro|user{n}@macro.com")))
+            .collect(),
+        title: "Look at this".to_string(),
+        body: None,
+        link: document(),
+    };
+
+    let too_many = notifications
+        .send(sender(), crowd(MAX_RECIPIENTS + 1), at(0))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        too_many,
+        ManualNotificationError::TooManyRecipients
+    ));
+
+    // The cap itself is allowed; none of them can see the link, so all are
+    // skipped and nothing is sent.
+    let at_the_cap = notifications
+        .send(sender(), crowd(MAX_RECIPIENTS), at(0))
+        .await
+        .unwrap();
+    assert_eq!(at_the_cap.skipped.len(), MAX_RECIPIENTS);
+    assert!(notifications.ingress.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn counts_each_notified_recipient_against_the_senders_allowance() {
+    let mut notifications = service(&[
+        ("macro|sender@macro.com", "doc-1"),
+        ("macro|teammate@macro.com", "doc-1"),
+        ("macro|reviewer@macro.com", "doc-1"),
+    ]);
+    notifications.allowance = FixedAllowance::of(3);
+
+    // Two can see the link and one cannot: two are counted.
+    notifications
+        .send(
+            sender(),
+            draft(
+                &[
+                    "macro|teammate@macro.com",
+                    "macro|reviewer@macro.com",
+                    "macro|outsider@macro.com",
+                ],
+                document(),
+            ),
+            at(0),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        *notifications.allowance.taken.lock().unwrap(),
+        [("macro|sender@macro.com".to_string(), 2)]
+    );
+
+    // Two more do not fit in what is left, so nobody is notified.
+    let error = notifications
+        .send(
+            sender(),
+            ManualNotificationDraft {
+                title: "Something else".to_string(),
+                ..draft(
+                    &["macro|teammate@macro.com", "macro|reviewer@macro.com"],
+                    document(),
+                )
+            },
+            at(0),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ManualNotificationError::AllowanceExceeded(AllowanceExceeded { limit: 3, .. })
+    ));
+    assert_eq!(
+        error.to_string(),
+        "too many notifications: a sender can notify at most 3 recipients an hour; try again in 26 minutes"
+    );
+    assert_eq!(notifications.ingress.sent.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_repeat_within_the_window_has_the_same_id_so_it_is_delivered_once() {
+    let notifications = service(&[
+        ("macro|sender@macro.com", "doc-1"),
+        ("macro|teammate@macro.com", "doc-1"),
+        ("macro|reviewer@macro.com", "doc-1"),
+    ]);
+    let send = async |recipients: &[&str], title: &str, minute: i64| {
+        notifications
+            .send(
+                sender(),
+                ManualNotificationDraft {
+                    title: title.to_string(),
+                    ..draft(recipients, document())
+                },
+                at(minute),
+            )
+            .await
+            .unwrap();
+        let sent = notifications.ingress.sent.lock().unwrap();
+        sent[sent.len() - 1]["uuid_to_write"].clone()
+    };
+    let both = ["macro|teammate@macro.com", "macro|reviewer@macro.com"];
+    let reversed = ["macro|reviewer@macro.com", "macro|teammate@macro.com"];
+
+    let first = send(&both, "Deploy finished", 0).await;
+    // The same words to the same people, in any order, a few minutes later.
+    assert_eq!(send(&reversed, "Deploy finished", 9).await, first);
+
+    // Once the window has passed it is a new notification.
+    assert_ne!(send(&both, "Deploy finished", 10).await, first);
+    // So are other words, and other people.
+    assert_ne!(send(&both, "Deploy failed", 0).await, first);
+    assert_ne!(
+        send(&["macro|teammate@macro.com"], "Deploy finished", 0).await,
+        first
+    );
+}
+
+#[tokio::test]
+async fn refuses_a_sender_whose_flag_is_off_before_anything_else() {
+    let mut notifications = service(&[
+        ("macro|sender@macro.com", "doc-1"),
+        ("macro|teammate@macro.com", "doc-1"),
+    ]);
+    notifications.flags = SenderFlag::Off;
+
+    // Even a draft that would be refused for its text is refused for the flag.
+    let error = notifications
+        .send(
+            sender(),
+            ManualNotificationDraft {
+                title: " ".to_string(),
+                ..draft(&["macro|teammate@macro.com"], document())
+            },
+            at(0),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ManualNotificationError::NotEnabled));
+    assert_eq!(
+        error.to_string(),
+        "agent notifications are not enabled for this account"
+    );
+    assert!(notifications.allowance.taken.lock().unwrap().is_empty());
+    assert!(notifications.ingress.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn sends_nothing_when_the_senders_flag_cannot_be_read() {
+    let mut notifications = service(&[
+        ("macro|sender@macro.com", "doc-1"),
+        ("macro|teammate@macro.com", "doc-1"),
+    ]);
+    notifications.flags = SenderFlag::Unreadable;
+
+    let error = notifications
+        .send(
+            sender(),
+            draft(&["macro|teammate@macro.com"], document()),
+            at(0),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        ManualNotificationError::FlagsUnavailable(_)
+    ));
+    assert!(notifications.ingress.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn refuses_links_the_inbox_never_lists() {
     let notifications = service(&[
         ("macro|sender@macro.com", "routine-1"),
         ("macro|sender@macro.com", "database-1"),
@@ -323,16 +803,9 @@ async fn refuses_links_the_inbox_and_home_never_list() {
     ] {
         let error = notifications
             .send(
-                ManualSender {
-                    user: user("macro|sender@macro.com"),
-                    agent_id: None,
-                },
-                ManualNotificationDraft {
-                    recipient: None,
-                    title: "Done".to_string(),
-                    body: None,
-                    link: entity_type.with_entity_string(id.to_string()),
-                },
+                sender(),
+                draft(&[], entity_type.with_entity_string(id.to_string())),
+                at(0),
             )
             .await
             .unwrap_err();
@@ -347,20 +820,19 @@ async fn refuses_links_the_inbox_and_home_never_list() {
 
 #[tokio::test]
 async fn refuses_an_agent_session_the_inbox_leaves_out() {
-    let notifications = service(&[("macro|sender@macro.com", "session-unlisted")]);
+    let notifications = service(&[
+        ("macro|sender@macro.com", "session-unlisted"),
+        ("macro|teammate@macro.com", "session-unlisted"),
+    ]);
 
     let error = notifications
         .send(
-            ManualSender {
-                user: user("macro|sender@macro.com"),
-                agent_id: None,
-            },
-            ManualNotificationDraft {
-                recipient: None,
-                title: "Run finished".to_string(),
-                body: None,
-                link: EntityType::AgentSession.with_entity_string("session-unlisted".to_string()),
-            },
+            sender(),
+            draft(
+                &["macro|teammate@macro.com"],
+                EntityType::AgentSession.with_entity_string("session-unlisted".to_string()),
+            ),
+            at(0),
         )
         .await
         .unwrap_err();
@@ -369,5 +841,6 @@ async fn refuses_an_agent_session_the_inbox_leaves_out() {
         error,
         ManualNotificationError::UnlistedAgentSession
     ));
+    assert!(notifications.allowance.taken.lock().unwrap().is_empty());
     assert!(notifications.ingress.sent.lock().unwrap().is_empty());
 }

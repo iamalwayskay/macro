@@ -6,16 +6,19 @@
  */
 import type { ManualMetadataAgent } from './manualMetadataAgent';
 import type { ManualMetadataBody } from './manualMetadataBody';
+import type { ManualMetadataMessage } from './manualMetadataMessage';
 
 /**
  * A notification written by its sender: a title, an optional body, and the
 entity it opens. The sender is the notification's `sender_id`, or nobody
-when people notify themselves.
+when people notify themselves. One about a channel message is filed under
+the message's channel and names the message.
  */
 export interface ManualMetadata {
   agent?: ManualMetadataAgent;
   /** More detail, as the sender wrote it. */
   body?: ManualMetadataBody;
+  message?: ManualMetadataMessage;
   /** The headline, as the sender wrote it. */
   title: string;
 }

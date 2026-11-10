@@ -253,17 +253,32 @@ pub async fn main() -> anyhow::Result<()> {
             redis: redis_client,
         },
     };
+    let manual_entity_access = entity_access::domain::service::EntityAccessServiceImpl::new(
+        entity_access::outbound::PgAccessRepository::new(db.clone()),
+    );
+    // Manual notifications are flag-gated per sender.
+    let manual_notification_flags = manual::flags::NotificationFlags::new(
+        config.environment,
+        config.posthog_api_key.value(),
+        config.posthog_host.value(),
+    )
+    .map_err(|error| anyhow::anyhow!("invalid feature flag configuration: {error}"))?;
     let manual_notification_state = api::manual_notification::ManualNotificationState {
         notifications: Arc::new(manual::ManualNotifications {
-            access: manual::entity_access::EntityAccessLinks(
-                entity_access::domain::service::EntityAccessServiceImpl::new(
-                    entity_access::outbound::PgAccessRepository::new(db.clone()),
+            flags: manual_notification_flags,
+            access: manual::entity_access::EntityAccessLinks(manual_entity_access.clone()),
+            messages: manual::channel_messages::ChannelMessageLinks {
+                access: manual_entity_access,
+                messages: messages::domain::service::MessageService::new(
+                    messages::outbound::pg_message_repo::PgMessageRepository::new(db.clone()),
+                    messages::domain::ports::NoMessageEventPublisher,
                 ),
-            ),
+            },
             sessions: manual::sessions::PgSessionListing(db.clone()),
             agents: manual::bots::BotAgentProfiles(bots::outbound::pg_bots_repo::PgBotsRepo::new(
                 db.clone(),
             )),
+            allowance: manual::allowance::HourlyAllowance(rate_limit_adapter.repo.clone()),
             ingress: ::notification::domain::service::SqsNotificationIngress {
                 queue: ::notification::outbound::queue::SqsQueue::new(
                     aws_sdk_sqs::Client::new(&aws_config),
@@ -271,7 +286,6 @@ pub async fn main() -> anyhow::Result<()> {
                 ),
             },
         }),
-        rate_limiter: rate_limit_adapter.clone(),
         authorization_state: authorization_state.clone(),
     };
 

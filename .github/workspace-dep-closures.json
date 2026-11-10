@@ -12351,7 +12351,6 @@
       "crates/trigger_context",
       "crates/unfurl",
       "crates/user_quota",
-      "crates/work_feed",
       "crates/workspace-hack",
       "services/notification_service"
     ],

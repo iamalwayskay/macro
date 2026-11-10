@@ -4,7 +4,9 @@
 --   doc       11111111-…  document
 --   chat      22222222-…  chat
 --   channel   33333333-…  channel user-1 is a member of
---   project   66666666-…  project
+--   project   66666666-…  project (a folder)
+--   initiative 88888888-…  initiative (a Tasks project)
+--   message   99999999-…  message in the channel
 --   thread    44444444-…  Signal email thread in user-1's own inbox
 --   sessions  77777777-…  listed (…01), unlisted (…02), hidden (…03)
 
@@ -39,8 +41,17 @@ VALUES ('33333333-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'private', 'macro|user-1@example
 INSERT INTO public.comms_channel_participants ("channel_id", "role", "user_id", "joined_at", "left_at")
 VALUES ('33333333-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'owner', 'macro|user-1@example.com', '2024-06-01 10:00:00', NULL);
 
+INSERT INTO public.comms_messages ("id", "parent_entity_type", "parent_entity_id", "thread_id", "sender_id", "content", "created_at", "updated_at")
+VALUES ('99999999-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'channel', '33333333-aaaa-aaaa-aaaa-aaaaaaaaaaaa', NULL, 'macro|user-1@example.com', 'Shipping today', '2024-06-01 10:06:00+00', '2024-06-01 10:06:00+00');
+
+INSERT INTO public.comms_message_threads ("root_id", "parent_entity_type", "parent_entity_id", "user_id", "created_at", "updated_at")
+VALUES ('99999999-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'channel', '33333333-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'macro|user-1@example.com', '2024-06-01 10:06:00+00', '2024-06-01 10:06:00+00');
+
 INSERT INTO public."Project" ("id", "name", "userId", "parentId", "createdAt", "updatedAt")
 VALUES ('66666666-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Launch', 'macro|user-1@example.com', NULL, '2024-06-01 10:00:00', '2024-06-01 10:00:00');
+
+INSERT INTO public.initiative ("id", "name", "owner_user_id", "share_permission_id")
+VALUES ('88888888-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Q3 launch', 'macro|user-1@example.com', 'sp-initiative-1');
 
 INSERT INTO public.email_links ("id", "macro_id", "fusionauth_user_id", "email_address", "provider")
 VALUES ('55555555-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'macro|user-1@example.com', 'fa-user-1', 'user@example.com', 'GMAIL');
@@ -66,6 +77,7 @@ INSERT INTO public.entity_access ("entity_id", "entity_type", "source_id", "sour
 VALUES ('11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'document', 'macro|user-1@example.com', 'user', 'owner', NULL),
        ('22222222-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'chat', 'macro|user-1@example.com', 'user', 'owner', NULL),
        ('66666666-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'project', 'macro|user-1@example.com', 'user', 'owner', NULL),
+       ('88888888-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'initiative', 'macro|user-1@example.com', 'user', 'owner', NULL),
        ('77777777-0000-0000-0000-000000000001', 'agent_session', 'macro|user-1@example.com', 'user', 'owner', NULL),
        ('77777777-0000-0000-0000-000000000002', 'agent_session', 'macro|user-1@example.com', 'user', 'owner', NULL),
        ('77777777-0000-0000-0000-000000000003', 'agent_session', 'macro|user-1@example.com', 'user', 'owner', NULL);

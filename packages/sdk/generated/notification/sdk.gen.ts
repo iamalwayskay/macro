@@ -247,9 +247,14 @@ export class Sdk extends HeyApiClient {
     }
 
     /**
-     * Send a notification the caller wrote, to themselves or to someone who can
-     * already see what it links to. Delivered like any other notification and
-     * subject to the recipient's notification preferences.
+     * Send a notification the caller wrote about an entity, to themselves or to
+     * people who can already see that entity. Recipients who cannot see it are
+     * skipped and returned. Delivered like any other notification and subject to
+     * each recipient's notification preferences. The same notification sent again
+     * in the same ten-minute window of the clock is delivered once; a repeat that
+     * falls in the next window is delivered again. A sender can notify at most
+     * 1000 recipients an hour. Refused with 403 while the
+     * `enable-agent-notifications` flag is off for the caller.
      */
     public sendManualNotification<ThrowOnError extends boolean = false>(options: Options<SendManualNotificationData, ThrowOnError>): RequestResult<SendManualNotificationResponses, SendManualNotificationErrors, ThrowOnError> {
         return (options.client ?? this.client).post<SendManualNotificationResponses, SendManualNotificationErrors, ThrowOnError>({

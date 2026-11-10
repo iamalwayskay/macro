@@ -1042,7 +1042,7 @@
     "/v1/user_notifications/send": {
       "post": {
         "tags": ["manual_notification"],
-        "summary": "Send a notification the caller wrote, to themselves or to someone who can\nalready see what it links to. Delivered like any other notification and\nsubject to the recipient's notification preferences.",
+        "summary": "Send a notification the caller wrote about an entity, to themselves or to\npeople who can already see that entity. Recipients who cannot see it are\nskipped and returned. Delivered like any other notification and subject to\neach recipient's notification preferences. The same notification sent again\nin the same ten-minute window of the clock is delivered once; a repeat that\nfalls in the next window is delivered again. A sender can notify at most\n1000 recipients an hour. Refused with 403 while the\n`enable-agent-notifications` flag is off for the caller.",
         "operationId": "send_manual_notification",
         "requestBody": {
           "content": {
@@ -1055,8 +1055,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "Queued for delivery"
+          "200": {
+            "description": "Queued for the recipients who can see the link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualNotificationOutcome"
+                }
+              }
+            }
           },
           "400": {
             "description": "",
@@ -1079,7 +1086,7 @@
             }
           },
           "403": {
-            "description": "The recipient cannot see the link",
+            "description": "Agent notifications are not enabled for the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -1099,10 +1106,27 @@
             }
           },
           "429": {
-            "description": "Too many manual notifications from this sender"
+            "description": "The sender has notified too many recipients this hour; `Retry-After` says when to try again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Whether agent notifications are enabled for the caller could not be checked; try again",
             "content": {
               "application/json": {
                 "schema": {
@@ -2651,7 +2675,7 @@
       },
       "ManualMetadata": {
         "type": "object",
-        "description": "A notification written by its sender: a title, an optional body, and the\nentity it opens. The sender is the notification's `sender_id`, or nobody\nwhen people notify themselves.",
+        "description": "A notification written by its sender: a title, an optional body, and the\nentity it opens. The sender is the notification's `sender_id`, or nobody\nwhen people notify themselves. One about a channel message is filed under\nthe message's channel and names the message.",
         "required": ["title"],
         "properties": {
           "agent": {
@@ -2668,6 +2692,17 @@
           "body": {
             "type": ["string", "null"],
             "description": "More detail, as the sender wrote it."
+          },
+          "message": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManualNotificationMessage",
+                "description": "The channel message it opens at, when the sender linked one."
+              }
+            ]
           },
           "title": {
             "type": "string",
@@ -2705,7 +2740,45 @@
           },
           "entityType": {
             "$ref": "#/components/schemas/EntityType",
-            "description": "One of document, chat, channel, project, email_thread or agent_session:\nthe kinds the inbox and Home list. An agent session must be listed;\nan email thread shows only while it is Signal-important and not shared."
+            "description": "One of document, chat, channel, channel_message, project, initiative,\nemail_thread, calendar_event, crm_company, crm_contact or\nagent_session: the kinds the inbox lists. A channel message is filed\nunder its channel and opens at the message. An agent session must be\nlisted; an email thread shows only while it is Signal-important and\nnot shared."
+          }
+        }
+      },
+      "ManualNotificationMessage": {
+        "type": "object",
+        "description": "The channel message a manual notification points at.",
+        "required": ["messageId"],
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The message."
+          },
+          "threadId": {
+            "type": ["string", "null"],
+            "format": "uuid",
+            "description": "The top-level message it replies to; absent when it is top-level\nitself."
+          }
+        }
+      },
+      "ManualNotificationOutcome": {
+        "type": "object",
+        "description": "Who a manual notification was sent to. A notified recipient's own\npreferences can still keep it from them; that is theirs to know.",
+        "required": ["notified", "skipped"],
+        "properties": {
+          "notified": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The recipients it was queued for, in the order they were named."
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedRecipient"
+            },
+            "description": "The recipients it was not sent to."
           }
         }
       },
@@ -3683,13 +3756,36 @@
             "$ref": "#/components/schemas/ManualNotificationLink",
             "description": "What the notification opens; the caller must be able to see it."
           },
-          "recipientId": {
-            "type": ["string", "null"],
-            "description": "Who gets it; the caller when omitted. Anyone else must already be able\nto see `link`."
+          "recipientIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who gets it, at most 100; the caller when omitted or empty. Anyone\nelse who cannot already see `link` is skipped, never given access."
           },
           "title": {
             "type": "string",
             "description": "The headline, at most 120 characters."
+          }
+        }
+      },
+      "SkipReason": {
+        "type": "string",
+        "description": "Why a recipient was left out of a manual notification.",
+        "enum": ["no_access"]
+      },
+      "SkippedRecipient": {
+        "type": "object",
+        "description": "A recipient a manual notification was not sent to.",
+        "required": ["userId", "reason"],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/SkipReason",
+            "description": "Why they were left out."
+          },
+          "userId": {
+            "type": "string",
+            "description": "The recipient."
           }
         }
       },

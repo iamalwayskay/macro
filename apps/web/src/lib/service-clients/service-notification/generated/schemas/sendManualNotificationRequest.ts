@@ -7,7 +7,6 @@
 
 import type { ManualNotificationLink } from './manualNotificationLink';
 import type { SendManualNotificationRequestBody } from './sendManualNotificationRequestBody';
-import type { SendManualNotificationRequestRecipientId } from './sendManualNotificationRequestRecipientId';
 
 /**
  * A notification written by the caller.
@@ -17,9 +16,9 @@ export interface SendManualNotificationRequest {
   body?: SendManualNotificationRequestBody;
   /** What the notification opens; the caller must be able to see it. */
   link: ManualNotificationLink;
-  /** Who gets it; the caller when omitted. Anyone else must already be able
-to see `link`. */
-  recipientId?: SendManualNotificationRequestRecipientId;
+  /** Who gets it, at most 100; the caller when omitted or empty. Anyone
+else who cannot already see `link` is skipped, never given access. */
+  recipientIds?: string[];
   /** The headline, at most 120 characters. */
   title: string;
 }
