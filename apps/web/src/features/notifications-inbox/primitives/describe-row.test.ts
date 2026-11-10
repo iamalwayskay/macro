@@ -451,6 +451,127 @@ describe('describeInboxCard', () => {
   });
 });
 
+describe('a note', () => {
+  const note = (id: string, sender = 'Scout') =>
+    sent(id, 'manual', sender, {
+      title: 'Deploy finished',
+      body: 'All 3 services are live.',
+    });
+
+  const on = (
+    entity: Record<string, unknown>,
+    row: NotificationInboxRow
+  ): NotificationInboxRow => ({
+    ...row,
+    content: { ...row.content, entity: entity as never },
+  });
+
+  const task = { type: 'task', id: 'task-a', name: 'Ship the inbox' };
+
+  it('says who notified you, what about, and what they wrote', () => {
+    expect(
+      describeInboxCard(
+        on(task, stack('discussion_messages', [note('1')])),
+        people
+      )
+    ).toEqual({
+      who: 'Scout notified you',
+      what: 'Ship the inbox',
+      body: 'Deploy finished — All 3 services are live.',
+    });
+  });
+
+  it('names its entity on every row it joins', () => {
+    const rows = [
+      ['email', { type: 'email', id: 'thread-a', name: 'Quarterly numbers' }],
+      ['calendar_event', { type: 'calendar_event', id: 'e', name: 'Standup' }],
+      ['agent', { type: 'agent_session', id: 's', name: 'Inbox triage' }],
+      ['channel_thread', { type: 'channel', id: 'c', name: 'Dana' }],
+    ] as const;
+    for (const [type, entity] of rows) {
+      expect(
+        describeInboxCard(on(entity, stack(type, [note('1')])), people)
+      ).toEqual({
+        who: 'Scout notified you',
+        what: entity.name,
+        body: 'Deploy finished — All 3 services are live.',
+      });
+    }
+  });
+
+  it('names a channel the way its messages do', () => {
+    const general = {
+      type: 'channel',
+      id: 'c',
+      name: 'launch',
+      channelType: 'public',
+    };
+    expect(
+      describeInboxCard(
+        on(general, stack('channel_messages', [note('1')])),
+        people
+      ).what
+    ).toBe('#launch');
+  });
+
+  it('is a Note when nobody is named as its sender', () => {
+    // A note people send themselves from a script has no sender and no agent.
+    const own = {
+      ...note('1'),
+      sender_id: null,
+    } as unknown as UnifiedNotification;
+    const row = on(task, stack('discussion_messages', [own]));
+    expect(describeInboxCard(row, people)).toEqual({
+      who: 'Note',
+      what: 'Ship the inbox',
+      body: 'Deploy finished — All 3 services are live.',
+    });
+    expect(describeInboxRow(row, people).action).toBe('Note');
+    expect(itemsOf(row)[0].by).toBe('Note');
+  });
+
+  it('keeps its verb when a stack holds nothing but notes', () => {
+    const row = on(
+      task,
+      stack('discussion_messages', [note('1'), note('2', 'Builder')])
+    );
+    expect(describeInboxCard(row, people).who).toBe(
+      'Scout and Builder notified you'
+    );
+  });
+
+  it('on top of a stack names its people and says who wrote it', () => {
+    const comment = sent('2', 'commented_on_document', 'Sam', {
+      documentName: 'Ship the inbox',
+      text: 'Looks good',
+    });
+    const row = on(task, stack('discussion_messages', [note('1'), comment]));
+    expect(describeInboxCard(row, people)).toEqual({
+      who: 'Scout and Sam',
+      what: 'Ship the inbox',
+      body: 'Scout: Deploy finished — All 3 services are live.',
+    });
+    expect(itemsOf(row).map(({ by, text }) => ({ by, text }))).toEqual([
+      {
+        by: 'Scout notified you',
+        text: 'Deploy finished — All 3 services are live.',
+      },
+      { by: 'Sam commented', text: 'Looks good' },
+    ]);
+  });
+
+  it('makes the row it tops a note, but leaves a mention a mention', () => {
+    expect(inboxCardKind(stack('discussion_messages', [note('1')]))).toBe(
+      'note'
+    );
+    expect(inboxCardKind(stack('channel_thread', [note('1')]))).toBe('note');
+    expect(inboxCardKind(stack('email', [note('1')]))).toBe('note');
+    expect(inboxCardKind(stack('channel_mention', [note('1')]))).toBe(
+      'mention'
+    );
+  });
+});
+
 describe('inboxCardKind', () => {
   const kindOf = (
     type: NotificationInboxRow['type'],

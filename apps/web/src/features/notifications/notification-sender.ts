@@ -119,6 +119,20 @@ export function getNotificationAgentSender(
     .otherwise(() => undefined);
 }
 
+/**
+ * The user a notification reads as being from. A manual notification an agent
+ * sent keeps its user's id as sender but reads as from the agent alone, so it
+ * names no user.
+ */
+export function getNotificationUserSenderId(
+  notification: UnifiedNotification
+): string | undefined {
+  const fromAgent =
+    notification.notification_metadata.tag === 'manual' &&
+    getNotificationAgentSender(notification) !== undefined;
+  return fromAgent ? undefined : (notification.sender_id ?? undefined);
+}
+
 /** Unique agent senders across a stack, by name, preserving order. */
 export function getUniqueAgentSenders(
   notifications: UnifiedNotification[]

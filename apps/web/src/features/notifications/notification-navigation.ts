@@ -128,6 +128,56 @@ function openSplitIfNotOpen(
   }
 }
 
+/**
+ * Open a company or contact, scrolled to `commentId` in its Discussion when
+ * one is given. Desktop shows records in Customers, which takes the comment
+ * from its route.
+ */
+function openCrmRecord(
+  layoutManager: SplitManager,
+  record: { type: 'company' | 'contact'; id: string },
+  commentId: string | undefined,
+  options: OpenOptions
+) {
+  if (isTouchDevice()) {
+    openSplitIfNotOpen(layoutManager, record.type, record.id, {
+      ...options,
+      params: commentId ? { [COMMENT_LINK_PARAM]: commentId } : undefined,
+    });
+    return;
+  }
+  let pending = options.onApplied;
+  const reportApplied = () => {
+    const callback = pending;
+    pending = undefined;
+    callback?.();
+  };
+  const result = layoutManager.openWithSplit(
+    crmRecordContent(record, commentId),
+    {
+      activate: true,
+      referredFrom: null,
+      preferNewSplit: options.newSplit,
+      handle: options.sourceHandle,
+      allowDuplicate: true,
+      ...(options.onApplied ? { onApplied: reportApplied } : {}),
+    }
+  );
+  if (result.status === 'opened' || result.status === 'reused') reportApplied();
+}
+
+/** The channel message a manual notification is about, when it names one. */
+function manualNotificationMessage(notification: UnifiedNotification) {
+  const meta = notification.notification_metadata;
+  if (meta.tag !== 'manual' || notification.entity_type !== 'channel') return;
+  const message = meta.content.message;
+  if (!message) return;
+  return {
+    messageId: message.messageId,
+    threadId: message.threadId ?? undefined,
+  };
+}
+
 /** A manual notification opens the entity its sender linked. */
 function openManualNotificationLink(
   notification: UnifiedNotification,
@@ -135,20 +185,89 @@ function openManualNotificationLink(
   onApplied?: VoidFunction
 ): ((layoutManager: SplitManager, newSplit?: boolean) => Promise<void>) | null {
   const id = notification.entity_id;
+  const message = manualNotificationMessage(notification);
+  if (message) {
+    return async (lm: SplitManager, newSplit = false) => {
+      await navigateToChannelMessage(
+        lm.getOrchestrator(),
+        id,
+        message.messageId,
+        message.threadId,
+        {
+          splitManager: lm,
+          preferNewSplit: newSplit,
+          sourceHandle,
+          ...(onApplied ? { onApplied } : {}),
+        }
+      );
+    };
+  }
+
   const block = match(notification.entity_type)
     .with('chat', () => 'chat' as const)
     .with('channel', () => 'channel' as const)
     .with('project', () => 'project' as const)
     .with('email_thread', () => 'email' as const)
     .with('agent_session', () => 'agent' as const)
-    .with('document', () => undefined)
+    .with(
+      'document',
+      'initiative',
+      'calendar_event',
+      'crm_company',
+      'crm_contact',
+      () => undefined
+    )
     .otherwise(() => null);
   if (block === null) return null;
+  // A note delivered before a flag closed still has a live notification;
+  // opening it must not reach a surface the user is no longer meant to have.
+  if (
+    notification.entity_type === 'initiative' &&
+    !isFeatureEnabled(enableProjects)
+  )
+    return null;
 
   return async (lm: SplitManager, newSplit = false) => {
     const options = { newSplit, sourceHandle, onApplied };
     if (block) {
       openSplitIfNotOpen(lm, block, id, options);
+      return;
+    }
+
+    if (notification.entity_type === 'initiative') {
+      openSplitIfNotOpen(
+        lm,
+        'component',
+        projectRouteId({ id, section: 'overview' }),
+        options
+      );
+      return;
+    }
+
+    if (notification.entity_type === 'calendar_event') {
+      if (!isFeatureEnabled(enableCalendarUi)) {
+        onApplied?.();
+        return;
+      }
+      openCalendarView(
+        { eventId: id },
+        {
+          manager: lm,
+          handle: sourceHandle,
+          openInNewSplit: newSplit,
+          ...(onApplied ? { onApplied } : {}),
+        }
+      );
+      return;
+    }
+
+    if (
+      notification.entity_type === 'crm_company' ||
+      notification.entity_type === 'crm_contact'
+    ) {
+      const type =
+        notification.entity_type === 'crm_contact' ? 'contact' : 'company';
+      openCrmRecord(lm, { type, id }, undefined, options);
       return;
     }
 
@@ -182,6 +301,14 @@ function openManualNotificationLink(
 export function getChannelNotificationParams(
   notification: UnifiedNotification
 ): { messageId?: string; threadId?: string; params?: Record<string, string> } {
+  // A manual notification about a message points at it as a mention would.
+  const noted = manualNotificationMessage(notification);
+  if (noted) {
+    return {
+      ...noted,
+      params: getChannelParams(noted.messageId, noted.threadId),
+    };
+  }
   if (!isChannelNotification(notification)) return {};
 
   const meta = notification.notification_metadata;
@@ -686,42 +813,15 @@ function getSupportedHandler(
       .with('crm_discussion', () => {
         const meta = notification.notification_metadata;
         if (meta.tag !== 'crm_discussion') return null;
-        const blockName =
+        const type =
           notification.entity_type === 'crm_contact' ? 'contact' : 'company';
-        return async (lm: SplitManager, newSplit: boolean = false) => {
-          // Desktop shows records in Customers, which takes the message from its route.
-          if (!isTouchDevice()) {
-            let pending = onApplied;
-            const reportApplied = () => {
-              const callback = pending;
-              pending = undefined;
-              callback?.();
-            };
-            const result = lm.openWithSplit(
-              crmRecordContent(
-                { type: blockName, id: notification.entity_id },
-                meta.content.messageId
-              ),
-              {
-                activate: true,
-                referredFrom: null,
-                preferNewSplit: newSplit,
-                handle: sourceHandle,
-                allowDuplicate: true,
-                ...(onApplied ? { onApplied: reportApplied } : {}),
-              }
-            );
-            if (result.status === 'opened' || result.status === 'reused')
-              reportApplied();
-            return;
-          }
-          openSplitIfNotOpen(lm, blockName, notification.entity_id, {
-            newSplit,
-            params: { [COMMENT_LINK_PARAM]: meta.content.messageId },
-            sourceHandle,
-            onApplied,
-          });
-        };
+        return async (lm: SplitManager, newSplit: boolean = false) =>
+          openCrmRecord(
+            lm,
+            { type, id: notification.entity_id },
+            meta.content.messageId,
+            { newSplit, sourceHandle, onApplied }
+          );
       })
       .with('inbox_reauth_required', () => null)
       .with('routine_run_finished', () => {

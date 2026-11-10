@@ -75,6 +75,23 @@ const channelPlace = (content: ChannelContent) => {
     : content.channelName;
 };
 
+/**
+ * Where a note on a row's entity is: the channel as its messages name it, and
+ * anything else by its own name. A DM names the other person.
+ */
+const notePlace = (entity: NotificationInboxRow['content']['entity']) =>
+  entity.type === 'channel' &&
+  (entity.channelType === 'public' || entity.channelType === 'team')
+    ? `#${entity.name}`
+    : entity.name;
+
+/**
+ * What a note's sender did. A note people send themselves from a script has
+ * no one to name, so it says what it is instead.
+ */
+const noteDeed = (sender: string | undefined) =>
+  sender ? `${sender} notified you` : 'Note';
+
 /** Channel verbs drop their preposition in a DM, which needs no place. */
 function channelAction(
   actor: string | undefined,
@@ -176,6 +193,10 @@ function describeNotification(
     }))
     .with({ tag: 'ai_response' }, () => ({
       action: 'Macro responded',
+      subject: content ?? entityName,
+    }))
+    .with({ tag: 'manual' }, () => ({
+      action: noteDeed(actor),
       subject: content ?? entityName,
     }))
     .with(
@@ -360,6 +381,23 @@ export function describeInboxCard(
       ? who
       : join(who, stackVerb(latest));
 
+  // A note is its sender's own words about the row's entity, whichever row it
+  // joined: the entity is the middle line. A stack that mixes notes with
+  // other things names only its people, since no one verb fits them all.
+  if (metadata.tag === 'manual') {
+    const onlyNotes = row.content.notifications.every(
+      (notification) => notification.notification_metadata.tag === 'manual'
+    );
+    return withoutRepeats(
+      {
+        who: onlyNotes || !who ? noteDeed(who || undefined) : who,
+        what: notePlace(row.content.entity),
+        body,
+      },
+      entityName
+    );
+  }
+
   const card = match(row.type)
     .with('channel_thread', 'channel_mention', () =>
       isStack
@@ -428,16 +466,22 @@ export function describeInboxCard(
 
 /**
  * The kind of notification a row is. A stack's newest notification decides,
- * except that a mention stays one: it is why the row is there.
+ * so a note on top makes any row a note, except that a mention stays one: it
+ * is why the row is there.
  */
 export function inboxCardKind(row: NotificationInboxRow): InboxCardKind {
   const metadata = row.content.notifications[0]?.notification_metadata;
   const isDirect =
     (metadata?.content as ChannelContent | undefined)?.channelType ===
     'directMessage';
+  const isNote = metadata?.tag === 'manual';
   return match(row.type)
     .returnType<InboxCardKind>()
     .with('channel_mention', 'discussion_mention', () => 'mention')
+    .when(
+      () => isNote,
+      () => 'note'
+    )
     .with('channel_thread', () =>
       metadata?.tag === 'channel_message_reaction' ? 'reaction' : 'reply'
     )
@@ -474,7 +518,10 @@ export function describeStackItem(
   const sender = senderOf(row, notification, names);
   return {
     id: notification.id,
-    by: join(sender, stackVerb(notification)),
+    by:
+      notification.notification_metadata.tag === 'manual'
+        ? noteDeed(sender)
+        : join(sender, stackVerb(notification)),
     text: describeNotification(row, notification, sender).subject,
     at: new Date(notification.created_at),
   };

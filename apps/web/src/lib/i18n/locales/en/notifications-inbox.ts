@@ -32,6 +32,7 @@ export default {
   kindInvite: 'Invite',
   kindAccess: 'Access',
   kindAgent: 'Agent',
+  kindNote: 'Note',
   kindTask: 'Task',
   kindPullRequest: 'Pull request',
   kindEvent: 'Event',
