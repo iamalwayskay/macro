@@ -32,6 +32,9 @@ export type NotificationEventGroup = {
   events: readonly NotificationEventDefinition[];
 };
 
+/** Agent notes: notifications written with `macro.notifications.send`. */
+export const AGENT_NOTES_EVENT_TYPE = 'manual';
+
 export const NOTIFICATION_EVENT_GROUPS: readonly NotificationEventGroup[] = [
   {
     id: 'sharing',
@@ -199,7 +202,7 @@ export const NOTIFICATION_EVENT_GROUPS: readonly NotificationEventGroup[] = [
         description: 'When one of your routines finishes or fails a run',
       },
       {
-        type: 'manual',
+        type: AGENT_NOTES_EVENT_TYPE,
         label: 'Agent notes',
         description: 'When an agent or a script sends you a notification',
       },
@@ -237,6 +240,18 @@ export const NOTIFICATION_EVENT_GROUPS: readonly NotificationEventGroup[] = [
     ],
   },
 ];
+
+/**
+ * The events of `group` a person can set. Agent notes are left out while
+ * `enable-agent-notifications` is off for them.
+ */
+export function listedNotificationEvents(
+  group: NotificationEventGroup,
+  options: { agentNotifications: boolean }
+): readonly NotificationEventDefinition[] {
+  if (options.agentNotifications) return group.events;
+  return group.events.filter((event) => event.type !== AGENT_NOTES_EVENT_TYPE);
+}
 
 export const BLOCKABLE_NOTIFICATION_EVENT_TYPES: readonly string[] =
   NOTIFICATION_EVENT_GROUPS.flatMap((group) =>

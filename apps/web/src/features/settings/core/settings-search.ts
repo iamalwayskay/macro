@@ -3,7 +3,10 @@ import type {
   SettingsTabGroup,
   SettingsTabItem,
 } from '@core/constant/settingsTabsConfig';
-import { NOTIFICATION_EVENT_GROUPS } from '../../notifications/notification-event-catalog';
+import {
+  AGENT_NOTES_EVENT_TYPE,
+  NOTIFICATION_EVENT_GROUPS,
+} from '../../notifications/notification-event-catalog';
 import { settingsTarget } from './settings-target';
 
 type Setting = {
@@ -11,6 +14,8 @@ type Setting = {
   title: string;
   target?: string;
   keywords: string;
+  /** The notification event this setting toggles. */
+  eventType?: string;
 };
 export type SettingsSearchResult = Setting & {
   id: string;
@@ -59,6 +64,7 @@ const SETTINGS: Setting[] = [
       title: `${event.label} · ${group.label}`,
       target: group.label,
       keywords: `${group.label} ${event.description}`,
+      eventType: event.type,
     }))
   ),
   {
@@ -396,7 +402,12 @@ function tokenScore(query: string, candidate: string): number {
 export function searchSettings(
   groups: readonly SettingsTabGroup[],
   query: string,
-  options: { emailSignatures?: boolean; outlook?: boolean } = {}
+  options: {
+    emailSignatures?: boolean;
+    outlook?: boolean;
+    /** Whether search lists the Agent notes notification setting. */
+    agentNotifications?: boolean;
+  } = {}
 ): SettingsSearchResult[] {
   const tokens = words(query);
   if (!tokens.length) return [];
@@ -417,7 +428,9 @@ export function searchSettings(
         setting.tab === page.tab &&
         (options.emailSignatures !== false ||
           setting.title !== 'Email signatures') &&
-        (options.outlook !== false || setting.title !== 'Outlook')
+        (options.outlook !== false || setting.title !== 'Outlook') &&
+        (options.agentNotifications !== false ||
+          setting.eventType !== AGENT_NOTES_EVENT_TYPE)
     ).map((setting) => ({
       ...setting,
       target: settingsTarget(setting.target),

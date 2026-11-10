@@ -76,6 +76,21 @@ describe('individual settings search', () => {
       }).some((result) => result.title === 'Email signatures')
     ).toBe(false);
   });
+  it('lists the Agent notes setting only while agent notifications are on', () => {
+    const agentNotes = (agentNotifications?: boolean) =>
+      searchSettings(SETTINGS_TAB_GROUPS, 'agent notes', {
+        agentNotifications,
+      }).filter((result) => result.title.startsWith('Agent notes'));
+
+    expect(agentNotes(true)).toMatchObject([{ tab: 'Notifications' }]);
+    expect(agentNotes(false)).toEqual([]);
+    // Other notification settings stay searchable.
+    expect(
+      searchSettings(SETTINGS_TAB_GROUPS, 'routine runs', {
+        agentNotifications: false,
+      })[0]
+    ).toMatchObject({ tab: 'Notifications' });
+  });
   it('finds the team members page for inviting people', () => {
     for (const query of ['invite', 'members', 'team members', 'teammates']) {
       expect(search(query)[0]).toMatchObject({

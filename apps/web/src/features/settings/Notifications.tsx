@@ -1,10 +1,13 @@
 import { NotificationSoundSettingsView } from '@app/features/notification-sounds/views/NotificationSoundSettingsView';
 import { useAnalytics } from '@app/lib/analytics/analytics-context';
+import { useFeatureFlag } from '@app/lib/analytics/posthog';
 import { toast } from '@core/component/Toast/Toast';
+import { enableAgentNotifications } from '@core/constant/featureFlags';
 import { isNativeMobilePlatform } from '@core/mobile/isNativeMobilePlatform';
 import { fireAndForget } from '@core/util/fireAndForget';
 import {
   EMAIL_DIGEST_NOTIFICATION_TYPE,
+  listedNotificationEvents,
   NOTIFICATION_EVENT_GROUPS,
 } from '@notifications/notification-event-catalog';
 import { useNotificationSettings } from '@notifications/notification-settings';
@@ -35,6 +38,7 @@ export function Notifications() {
   const platformSettings = useNotificationSettings();
   const [pushPending, setPushPending] = createSignal(false);
   const preferencesQuery = useNotificationTypePreferencesQuery();
+  const agentNotifications = useFeatureFlag(enableAgentNotifications);
   const setTypeEnabled = useSetNotificationTypeEnabledMutation();
   const mutedEntitiesQuery = useMutedEntitiesQuery({ limit: 100 });
   const unmuteItem = useUnmuteItemMutation();
@@ -158,7 +162,11 @@ export function Notifications() {
         {(group) => (
           <SettingsSection title={group.label}>
             <SettingsCard>
-              <For each={group.events}>
+              <For
+                each={listedNotificationEvents(group, {
+                  agentNotifications: agentNotifications().enabled,
+                })}
+              >
                 {(event) => (
                   <SettingsRow
                     label={event.label}
