@@ -1,7 +1,10 @@
 import { NotificationSoundSettingsView } from '@app/features/notification-sounds/views/NotificationSoundSettingsView';
+import { NotificationStacksSection } from '@app/features/notification-stacks/notification-stacks';
 import { useAnalytics } from '@app/lib/analytics/analytics-context';
+import { useFeatureFlag } from '@app/lib/analytics/posthog';
 import { inEnglish, t } from '@app/lib/i18n';
 import { toast } from '@core/component/Toast/Toast';
+import { enableNotificationStacks } from '@core/constant/featureFlags';
 import { isNativeMobilePlatform } from '@core/mobile/isNativeMobilePlatform';
 import { fireAndForget } from '@core/util/fireAndForget';
 import {
@@ -39,6 +42,7 @@ export function Notifications() {
   const setTypeEnabled = useSetNotificationTypeEnabledMutation();
   const mutedEntitiesQuery = useMutedEntitiesQuery({ limit: 100 });
   const unmuteItem = useUnmuteItemMutation();
+  const stacks = useFeatureFlag(enableNotificationStacks);
   const prefsReady = () =>
     !preferencesQuery.isError && queryReadyGate(preferencesQuery);
   const mutedEntities = () =>
@@ -190,6 +194,10 @@ export function Notifications() {
           </SettingsSection>
         )}
       </For>
+
+      <Show when={stacks().enabled}>
+        <NotificationStacksSection />
+      </Show>
 
       <SettingsSection
         title={t('settingsNotifications.snoozedTitle')}

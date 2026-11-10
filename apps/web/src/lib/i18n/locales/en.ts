@@ -16,6 +16,7 @@ import localRuntime from './en/local-runtime';
 import mobile from './en/mobile';
 import nav from './en/nav';
 import notificationSounds from './en/notification-sounds';
+import notificationStacks from './en/notification-stacks';
 import notificationsInbox from './en/notifications-inbox';
 import runtimeSharing from './en/runtime-sharing';
 import settingsLanguage from './en/settings-language';
@@ -50,6 +51,7 @@ export default {
   mobile,
   nav,
   notificationSounds,
+  notificationStacks,
   notificationsInbox,
   runtimeSharing,
   settingsLanguage,
