@@ -131,6 +131,12 @@ export type ApiUserNotification = Entity & {
      */
     id: string;
     /**
+     * The lane the notification was routed into for its owner. Always sent;
+     * optional in the schema because clients also read notifications stored
+     * or delivered before lanes existed, which are signal.
+     */
+    lane?: NotificationLane;
+    /**
      * The notification event type string (e.g. "channel_mention").
      * TODO make this a new type
      */
@@ -1365,6 +1371,14 @@ export type NotificationDocumentSubType = {
     type: 'initiative_description';
 };
 
+/**
+ * Where a notification was routed for its recipient, decided once at ingress.
+ *
+ * Readers of a user's notifications ask for one lane. `Signal` is the default
+ * everywhere, so a reader that says nothing never sees noise.
+ */
+export type NotificationLane = 'signal' | 'noise';
+
 export type NotificationServiceApiVersion = 'v1';
 
 /**
@@ -1429,6 +1443,11 @@ export type RealtimeNotifTaggedContentValue = Entity & {
      * When the notification was deleted.
      */
     deleted_at?: string | null;
+    /**
+     * The lane every recipient of this payload was routed into. Messages
+     * queued before lanes existed are signal.
+     */
+    lane?: NotificationLane;
     /**
      * The notification event type string (e.g. "channel_mention").
      * TODO make this a new type
@@ -1833,6 +1852,10 @@ export type ListTypedNotificationsData = {
          */
         states?: string;
         /**
+         * The lane to list: signal or noise. Omitted lists signal.
+         */
+        lane?: NotificationLane;
+        /**
          * Size limit per page.
          */
         limit?: number;
@@ -1943,6 +1966,10 @@ export type BulkGetTypedNotificationsByEventItemIdsData = {
          */
         states?: string;
         /**
+         * The lane to list: signal or noise. Omitted lists signal.
+         */
+        lane?: NotificationLane;
+        /**
          * Size limit per page. Default 20, max 500.
          */
         limit?: number;
@@ -1981,6 +2008,10 @@ export type GetTypedNotificationsByEventItemIdData = {
          * Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states.
          */
         states?: string;
+        /**
+         * The lane to list: signal or noise. Omitted lists signal.
+         */
+        lane?: NotificationLane;
         /**
          * Size limit per page.
          */

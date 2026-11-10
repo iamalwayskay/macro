@@ -240,6 +240,7 @@ export * from './notificationDocumentSubTypeOneOfSevenType';
 export * from './notificationDocumentSubTypeOneOfThree';
 export * from './notificationDocumentSubTypeOneOfThreeType';
 export * from './notificationDocumentSubTypeOneOfType';
+export * from './notificationLane';
 export * from './notificationServiceApiVersion';
 export * from './notificationState';
 export * from './notificationTypeName';

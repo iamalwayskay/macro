@@ -255,6 +255,10 @@ export const listTypedNotificationsQueryParams = zod.object({
     .describe(
       'Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states.'
     ),
+  lane: zod
+    .enum(['signal', 'noise'])
+    .optional()
+    .describe('The lane to list: signal or noise. Omitted lists signal.'),
   limit: zod
     .number()
     .min(listTypedNotificationsQueryLimitMin)
@@ -340,6 +344,12 @@ export const listTypedNotificationsResponse = zod
                 .nullish()
                 .describe('When the notification was deleted.'),
               id: zod.uuid().describe('The notification ID.'),
+              lane: zod
+                .enum(['signal', 'noise'])
+                .optional()
+                .describe(
+                  "Where a notification was routed for its recipient, decided once at ingress.\n\nReaders of a user's notifications ask for one lane. `Signal` is the default\neverywhere, so a reader that says nothing never sees noise."
+                ),
               notification_event_type: zod
                 .string()
                 .describe(
@@ -2425,6 +2435,10 @@ export const bulkGetTypedNotificationsByEventItemIdsQueryParams = zod.object({
     .describe(
       'Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states.'
     ),
+  lane: zod
+    .enum(['signal', 'noise'])
+    .optional()
+    .describe('The lane to list: signal or noise. Omitted lists signal.'),
   limit: zod
     .number()
     .min(bulkGetTypedNotificationsByEventItemIdsQueryLimitMin)
@@ -2518,6 +2532,12 @@ export const bulkGetTypedNotificationsByEventItemIdsResponse = zod
                 .nullish()
                 .describe('When the notification was deleted.'),
               id: zod.uuid().describe('The notification ID.'),
+              lane: zod
+                .enum(['signal', 'noise'])
+                .optional()
+                .describe(
+                  "Where a notification was routed for its recipient, decided once at ingress.\n\nReaders of a user's notifications ask for one lane. `Signal` is the default\neverywhere, so a reader that says nothing never sees noise."
+                ),
               notification_event_type: zod
                 .string()
                 .describe(
@@ -4561,6 +4581,10 @@ export const getTypedNotificationsByEventItemIdQueryParams = zod.object({
     .describe(
       'Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states.'
     ),
+  lane: zod
+    .enum(['signal', 'noise'])
+    .optional()
+    .describe('The lane to list: signal or noise. Omitted lists signal.'),
   limit: zod
     .number()
     .min(getTypedNotificationsByEventItemIdQueryLimitMin)
@@ -4646,6 +4670,12 @@ export const getTypedNotificationsByEventItemIdResponse = zod
                 .nullish()
                 .describe('When the notification was deleted.'),
               id: zod.uuid().describe('The notification ID.'),
+              lane: zod
+                .enum(['signal', 'noise'])
+                .optional()
+                .describe(
+                  "Where a notification was routed for its recipient, decided once at ingress.\n\nReaders of a user's notifications ask for one lane. `Signal` is the default\neverywhere, so a reader that says nothing never sees noise."
+                ),
               notification_event_type: zod
                 .string()
                 .describe(
@@ -6779,6 +6809,12 @@ export const getTypedNotificationByIdResponse = zod
         .nullish()
         .describe('When the notification was deleted.'),
       id: zod.uuid().describe('The notification ID.'),
+      lane: zod
+        .enum(['signal', 'noise'])
+        .optional()
+        .describe(
+          "Where a notification was routed for its recipient, decided once at ingress.\n\nReaders of a user's notifications ask for one lane. `Signal` is the default\neverywhere, so a reader that says nothing never sees noise."
+        ),
       notification_event_type: zod
         .string()
         .describe(
