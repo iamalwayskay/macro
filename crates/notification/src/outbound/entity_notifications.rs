@@ -14,7 +14,7 @@ use rootcause::Report;
 use sqlx::PgPool;
 
 use crate::domain::models::{
-    NotificationState, UserNotificationRow, entity_query::EntityNotificationQuery,
+    NotificationLane, NotificationState, UserNotificationRow, entity_query::EntityNotificationQuery,
 };
 
 pub(super) async fn get_filtered_entity_notifications(
@@ -60,6 +60,7 @@ pub(super) async fn get_filtered_entity_notifications(
               ON un.user_id = $1 AND un.deleted_at IS NULL
              AND un.event_item_type = 'channel' AND un.event_item_id = requested.entity_id
              AND un.state = ANY($9::notification_state[])
+             AND un.lane = $10
              AND un.notification_event_type IN ('channel_mention', 'channel_message_reply')
             JOIN notification n ON n.id = un.notification_id
             WHERE $8::bool AND requested.entity_type = 'channel'
@@ -90,6 +91,7 @@ pub(super) async fn get_filtered_entity_notifications(
                     FROM user_notification un
                     WHERE un.user_id = $1 AND un.deleted_at IS NULL
                       AND un.state = ANY($4::notification_state[])
+                      AND un.lane = $10
                       AND un.event_item_type = requested.entity_type
                       AND un.event_item_id = requested.entity_id
                     UNION
@@ -100,6 +102,7 @@ pub(super) async fn get_filtered_entity_notifications(
                         FROM user_notification un
                         WHERE un.user_id = $1 AND un.notification_id = n.id
                           AND un.deleted_at IS NULL AND un.state = ANY($4::notification_state[])
+                          AND un.lane = $10
                         -- Probe the viewer's row per notification: a plain join
                         -- can scan the viewer's whole history for each entity.
                         OFFSET 0
@@ -114,6 +117,7 @@ pub(super) async fn get_filtered_entity_notifications(
                         FROM user_notification un
                         WHERE un.user_id = $1 AND un.notification_id = n.id
                           AND un.deleted_at IS NULL AND un.state = ANY($4::notification_state[])
+                          AND un.lane = $10
                         OFFSET 0
                     ) un
                     WHERE requested.entity_type = 'channel_message'
@@ -161,6 +165,7 @@ pub(super) async fn get_filtered_entity_notifications(
         "#,
         user_id.as_ref(), &ids, &types, &query.states as _, &query.event_types, limit,
         query.top_level_messages_only, query.channel_feed_only, NotificationState::ACTIVE as _,
+        query.lane as NotificationLane,
     ).fetch_all(pool).await?;
 
     for row in rows {
@@ -175,6 +180,7 @@ pub(super) async fn get_filtered_entity_notifications(
                     .with_entity_string(row.event_item_id),
                 sent: row.sent,
                 state: row.state,
+                lane: query.lane,
                 created_at: row.created_at,
                 viewed_at: row.viewed_at,
                 updated_at: row.created_at,

@@ -86,6 +86,11 @@ pub struct ApiUserNotification {
     pub sent: bool,
     /// The authoritative notification lifecycle state.
     pub state: notification::domain::models::NotificationState,
+    /// The lane the notification was routed into for its owner. Always sent;
+    /// optional in the schema because clients also read notifications stored
+    /// or delivered before lanes existed, which are signal.
+    #[schema(required = false)]
+    pub lane: notification::domain::models::NotificationLane,
     /// When the notification was created.
     pub created_at: DateTime<Utc>,
     /// When the notification was viewed/seen.
@@ -110,6 +115,7 @@ impl ApiUserNotification {
             entity,
             sent,
             state,
+            lane,
             created_at,
             viewed_at,
             updated_at,
@@ -124,6 +130,7 @@ impl ApiUserNotification {
             entity,
             sent,
             state,
+            lane,
             created_at,
             viewed_at,
             updated_at,
@@ -186,6 +193,7 @@ pub fn router<S: ::notification::domain::service::NotificationReader>()
     path = "/v1/user_notifications",
     params(
         ("states" = Option<String>, Query, description = "Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states."),
+        ("lane" = Option<::notification::domain::models::NotificationLane>, Query, description = "The lane to list: signal or noise. Omitted lists signal."),
         ("limit" = Option<u32>, Query, description = "Size limit per page."),
         ("cursor" = Option<String>, Query, description = "Cursor value. Base64 encoded timestamp and item id."),
     ),
@@ -296,6 +304,7 @@ where
     path = "/v1/user_notifications/item/bulk",
     params(
         ("states" = Option<String>, Query, description = "Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states."),
+        ("lane" = Option<::notification::domain::models::NotificationLane>, Query, description = "The lane to list: signal or noise. Omitted lists signal."),
         ("limit" = Option<u32>, Query, description = "Size limit per page. Default 20, max 500."),
         ("cursor" = Option<String>, Query, description = "Cursor value. Base64 encoded timestamp and item id."),
     ),
@@ -357,6 +366,7 @@ async fn bulk_get_typed_notifications_by_event_item_ids<
     path = "/v1/user_notifications/item/{event_item_id}",
     params(
         ("states" = Option<String>, Query, description = "Comma-separated exact states: unseen,seen,done. Omitted defaults to unseen,seen; empty includes all states."),
+        ("lane" = Option<::notification::domain::models::NotificationLane>, Query, description = "The lane to list: signal or noise. Omitted lists signal."),
         ("event_item_id" = uuid::Uuid, Path, description = "The event item ID"),
         ("limit" = Option<u32>, Query, description = "Size limit per page."),
         ("cursor" = Option<String>, Query, description = "Cursor value. Base64 encoded timestamp and item id."),
