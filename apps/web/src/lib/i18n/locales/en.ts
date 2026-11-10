@@ -15,11 +15,13 @@ import entityActions from './en/entity-actions';
 import localRuntime from './en/local-runtime';
 import mobile from './en/mobile';
 import nav from './en/nav';
+import notificationSounds from './en/notification-sounds';
 import notificationsInbox from './en/notifications-inbox';
 import runtimeSharing from './en/runtime-sharing';
 import settingsLanguage from './en/settings-language';
 import settingsMobileApp from './en/settings-mobile-app';
 import settingsNav from './en/settings-nav';
+import settingsNotifications from './en/settings-notifications';
 import splitMenu from './en/split-menu';
 import tabs from './en/tabs';
 import tutorials from './en/tutorials';
@@ -47,11 +49,13 @@ export default {
   localRuntime,
   mobile,
   nav,
+  notificationSounds,
   notificationsInbox,
   runtimeSharing,
   settingsLanguage,
   settingsMobileApp,
   settingsNav,
+  settingsNotifications,
   splitMenu,
   tabs,
   tutorials,

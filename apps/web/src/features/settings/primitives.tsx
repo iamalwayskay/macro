@@ -222,6 +222,11 @@ export function SettingsCard(props: { class?: string; children: JSX.Element }) {
  */
 export function SettingsRow(props: {
   label: JSX.Element;
+  /**
+   * The settings search target, when the label is translated or not a plain
+   * string. Defaults to the label.
+   */
+  target?: string;
   description?: JSX.Element;
   children?: JSX.Element;
   align?: 'center' | 'start';
@@ -241,9 +246,11 @@ export function SettingsRow(props: {
   return (
     <div
       data-settings-target={
-        typeof props.label === 'string'
-          ? settingsTarget(props.label)
-          : undefined
+        props.target
+          ? settingsTarget(props.target)
+          : typeof props.label === 'string'
+            ? settingsTarget(props.label)
+            : undefined
       }
       tabIndex={-1}
       class={cn(

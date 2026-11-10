@@ -4,6 +4,7 @@ import {
   SettingsRow,
   SettingsSection,
 } from '@app/features/settings/primitives';
+import { formatLocale, t } from '@app/lib/i18n';
 import PlayIcon from '@icon/system/regular/play.svg';
 import { Button, Slider, ToggleSwitch } from '@ui';
 import { For, Show } from 'solid-js';
@@ -20,11 +21,11 @@ import {
   NOTIFICATION_SOUNDS,
   type NotificationSoundId,
 } from '../core/sounds';
-
-const SOUND_OPTIONS = NOTIFICATION_SOUNDS.map((sound) => ({
-  id: sound.id,
-  name: sound.label,
-}));
+import {
+  soundCategoryDescription,
+  soundCategoryLabel,
+  soundLabel,
+} from '../primitives/sound-text';
 
 /** Sound settings for the Notifications page. */
 export function NotificationSoundSection(props: {
@@ -38,29 +39,40 @@ export function NotificationSoundSection(props: {
   onPreview: (sound: NotificationSoundId) => void;
 }) {
   const volumePercent = () => Math.round(props.settings.volume * 100);
+  const volumeText = () =>
+    new Intl.NumberFormat(formatLocale(), { style: 'percent' }).format(
+      volumePercent() / 100
+    );
+  const soundOptions = () =>
+    NOTIFICATION_SOUNDS.map((sound) => ({
+      id: sound.id,
+      name: soundLabel(sound.id),
+    }));
 
   return (
     <SettingsSection
-      title="Sounds"
-      description="Play a sound when a notification arrives. Saved on this device."
+      title={t('notificationSounds.title')}
+      target="Sounds"
+      description={t('notificationSounds.description')}
     >
       <SettingsCard>
         <SettingsRow
-          label="Notification sounds"
-          description="Off by default. Incoming calls always ring."
+          label={t('notificationSounds.enable')}
+          target="Notification sounds"
+          description={t('notificationSounds.enableDescription')}
         >
           <ToggleSwitch
             size="md"
-            label="Notification sounds"
+            label={t('notificationSounds.enable')}
             labelClass="sr-only"
             checked={props.settings.enabled}
             onChange={props.onEnabledChange}
           />
         </SettingsRow>
         <Show when={props.settings.enabled}>
-          <SettingsRow stackOnNarrow label="Volume">
+          <SettingsRow stackOnNarrow label={t('notificationSounds.volume')}>
             <Slider
-              aria-label="Volume"
+              aria-label={t('notificationSounds.volume')}
               class="w-full @[460px]:w-48"
               value={[volumePercent()]}
               minValue={0}
@@ -73,29 +85,32 @@ export function NotificationSoundSection(props: {
             >
               <Slider.Track>
                 <Slider.Fill />
-                <Slider.Thumb aria-valuetext={`${volumePercent()}%`}>
-                  <Slider.Input aria-label="Volume" />
+                <Slider.Thumb aria-valuetext={volumeText()}>
+                  <Slider.Input aria-label={t('notificationSounds.volume')} />
                 </Slider.Thumb>
               </Slider.Track>
             </Slider>
             <span class="w-10 shrink-0 text-right text-sm tabular-nums text-ink-muted">
-              {volumePercent()}%
+              {volumeText()}
             </span>
           </SettingsRow>
           <For each={NOTIFICATION_SOUND_CATEGORIES}>
             {(category) => {
               const current = () => props.settings.categories[category.id];
+              const label = () => soundCategoryLabel(category.id);
               return (
                 <SettingsRow
                   stackOnNarrow
-                  label={category.label}
-                  description={category.description}
+                  label={label()}
+                  description={soundCategoryDescription(category.id)}
                   muted={!current().enabled}
                 >
                   <SettingsSelect
-                    label={`${category.label} sound`}
+                    label={t('notificationSounds.categorySound', {
+                      category: label(),
+                    })}
                     class="min-w-0 w-32"
-                    options={SOUND_OPTIONS}
+                    options={soundOptions()}
                     value={current().sound}
                     onChange={(sound) => {
                       if (!isNotificationSoundId(sound)) return;
@@ -106,15 +121,17 @@ export function NotificationSoundSection(props: {
                   <Button
                     variant="ghost"
                     size="icon-md"
-                    aria-label={`Play ${category.label} sound`}
-                    tooltip="Play"
+                    aria-label={t('notificationSounds.playCategorySound', {
+                      category: label(),
+                    })}
+                    tooltip={t('notificationSounds.play')}
                     onClick={() => props.onPreview(current().sound)}
                   >
                     <PlayIcon class="size-4" />
                   </Button>
                   <ToggleSwitch
                     size="md"
-                    label={category.label}
+                    label={label()}
                     labelClass="sr-only"
                     checked={current().enabled}
                     onChange={(enabled) =>
