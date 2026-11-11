@@ -1,3 +1,4 @@
+import { isMobile } from '@core/mobile/isMobile';
 import { createControlledOpenSignal } from '@core/util/createControlledOpenSignal';
 import type { EntityData } from '@entity';
 import { ActionDialogShell, Dialog } from '@ui';
@@ -45,10 +46,11 @@ const BulkEditEntityModalContent = (props: {
 
   // The item chips come before the footer, so Kobalte's default autofocus
   // would land on the first chip and Enter would open that item. Focus the
-  // Delete button instead so Enter confirms; Escape still cancels.
+  // Delete button instead so Enter confirms; Escape still cancels. Phone
+  // sheets keep focusing themselves, so a screen reader starts on the sheet.
   let deleteButton: HTMLButtonElement | undefined;
   const focusDeleteButton = (event: Event) => {
-    if (props.view !== 'delete' || !deleteButton) return;
+    if (props.view !== 'delete' || !deleteButton || isMobile()) return;
     event.preventDefault();
     deleteButton.focus();
   };
