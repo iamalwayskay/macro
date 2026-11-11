@@ -93,6 +93,7 @@ rows, initiatives, ...) and get back a single unified, paginated result.
 - Validate caller DATE ranges in REST/GraphQL input conversion; render typed UTC bounds with `to_rfc3339()` and map numeric range indices to caller keys in Rust.
 - Preserve projection-backed hydration, the UUID-keyed item/fact pools, and per-group total/has-more metadata through the shared grouped response.
 - Flat property sorts omit calendar events, email, channels, calls, companies, and agent sessions; grouped reads retain calendar events and timestamp queries retain their existing sources.
+- The `Name` sort rides the same selected-sort path: each union arm contributes `lower(<its name column>)` as `sort_name`, hydrated rows order on their own `name`, and the cursor carries the stored spelling SQL lowers again. Database rows have no name there and sort last.
 - Preserve deployed timestamp cursor encodings; client query keys restart pages when ranges or selections change.
 - Keep flat timestamp top clauses lightweight; bind document-ID arrays after the sort's fixed parameters and skip subtype namespace joins when the filter proves TASK-only unless other predicates need them.
 - Read grouping/sort definition types through uncorrelated scalar lookups; join grouping options once outside the value expansion and preserve missing-option groups.
