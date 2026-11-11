@@ -249,8 +249,7 @@ async fn run_server() -> anyhow::Result<()> {
     // Gates new Outlook connections per user (`enable-outlook`). Without a
     // PostHog key the deployment switch alone decides.
     let feature_flags = config
-        .posthog_api_key
-        .value()
+        .posthog_api_key()
         .map(|key| {
             feature_flags::outbound::posthog::PostHogFeatureFlags::new(
                 config.posthog_host.value().unwrap_or(DEFAULT_POSTHOG_HOST),
@@ -373,7 +372,7 @@ async fn run_server() -> anyhow::Result<()> {
                     test_event_code: config.meta_test_event_code.value().map(str::to_string),
                 }
             }),
-        posthog: config.posthog_api_key.value().map(|api_key| {
+        posthog: config.posthog_api_key().map(|api_key| {
             tracing::info!("configuring PostHog");
             PostHogConfig {
                 api_key: api_key.to_string(),
