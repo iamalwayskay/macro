@@ -129,6 +129,7 @@ members = [
   "crates/pipedream_mcp",
   "crates/granola_sync",
   "crates/onboarding",
+  "crates/outlook_emulator",
   "crates/ai_engine",
   "crates/docx_engine",
   "crates/fig_engine",
@@ -344,6 +345,8 @@ livekit-api = { version = "0.4.16", default-features = false, features = [
   "services-tokio",
   "webhooks",
 ] }
+mail-builder = "0.4.3"
+mailparse = "0.16.1"
 livekit-protocol = "0.7.2"
 log = "0.4.26"
 logos = "0.16"
