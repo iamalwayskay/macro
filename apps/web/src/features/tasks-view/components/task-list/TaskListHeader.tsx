@@ -76,13 +76,7 @@ export function TaskListHeader() {
       style={taskGridTemplate({ indicator: true, project: showTaskProject() })}
     >
       <span role="columnheader" style={{ 'grid-area': 'indicator' }} />
-      <span
-        role="columnheader"
-        class="truncate"
-        style={{ 'grid-area': 'content' }}
-      >
-        Task
-      </span>
+      <SortableHeader label="Task" area="content" sortId="title" />
       <SortableHeader label="Status" area="status" />
       <SortableHeader label="Priority" area="priority" />
       <SortableHeader label="Assignees" area="assignees" />
