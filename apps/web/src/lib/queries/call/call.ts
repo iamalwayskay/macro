@@ -1,3 +1,4 @@
+import { t } from '@app/lib/i18n';
 import { toast } from '@core/component/Toast/Toast';
 import { ENABLE_CALLS } from '@core/constant/featureFlags';
 import { fireAndForget } from '@core/util/fireAndForget';
@@ -347,7 +348,7 @@ export function useRespondToCallTeamShareChangeMutation() {
     },
     onError(error: Error) {
       console.error('failed to answer call team-sharing change', error);
-      toast.failure("Couldn't save your answer. Try again.");
+      toast.failure(t('calls.teamShareAnswerFailed'));
     },
   }));
 }

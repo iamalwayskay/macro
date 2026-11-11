@@ -1,3 +1,4 @@
+import { t } from '@app/lib/i18n';
 import { getDisplayName } from '@core/user/displayName';
 import { tryMacroId } from '@core/user/macroId';
 import { Button } from '@ui';
@@ -14,20 +15,19 @@ export function CallTeamShareChangeStatus(props: {
     'pending' | 'awaitsMyAnswer' | 'isMine' | 'isAnswering'
   > & { answer: (approve: boolean) => unknown };
 }) {
-  const goal = () =>
-    props.change.pending()?.shared
-      ? 'share this call with the team'
-      : 'make this call private';
   const waitingOn = () => props.change.pending()?.waitingOn ?? [];
   const waitingLabel = () => {
     const [first, ...rest] = waitingOn();
-    if (!first) return 'Saving…';
+    if (!first) return t('calls.teamShareSaving');
     if (rest.length === 0)
-      return `Waiting for ${getDisplayName(tryMacroId(first))} to approve`;
-    return `Waiting for ${waitingOn().length} people to approve`;
+      return t('calls.teamShareWaitingOne', {
+        name: getDisplayName(tryMacroId(first)),
+      });
+    return t('calls.teamShareWaitingMany', { count: waitingOn().length });
   };
   const requester = () =>
     getDisplayName(tryMacroId(props.change.pending()?.requestedBy ?? ''));
+  const shared = () => props.change.pending()?.shared;
 
   return (
     <Show when={props.change.pending()}>
@@ -35,7 +35,12 @@ export function CallTeamShareChangeStatus(props: {
         <Switch>
           <Match when={props.change.awaitsMyAnswer()}>
             <span>
-              {requester()} wants to {goal()}.
+              {t(
+                shared()
+                  ? 'calls.teamShareAskShare'
+                  : 'calls.teamShareAskPrivate',
+                { name: requester() }
+              )}
             </span>
             <div class="flex gap-2">
               <Button
@@ -44,7 +49,7 @@ export function CallTeamShareChangeStatus(props: {
                 disabled={props.change.isAnswering()}
                 onClick={() => props.change.answer(true)}
               >
-                Approve
+                {t('calls.teamShareApprove')}
               </Button>
               <Button
                 size="sm"
@@ -52,7 +57,7 @@ export function CallTeamShareChangeStatus(props: {
                 disabled={props.change.isAnswering()}
                 onClick={() => props.change.answer(false)}
               >
-                Decline
+                {t('calls.teamShareDecline')}
               </Button>
             </div>
           </Match>
@@ -65,13 +70,19 @@ export function CallTeamShareChangeStatus(props: {
                 disabled={props.change.isAnswering()}
                 onClick={() => props.change.answer(false)}
               >
-                Cancel request
+                {t('calls.teamShareCancel')}
               </Button>
             </div>
           </Match>
           <Match when={true}>
             <span>
-              {requester()} asked to {goal()}. {waitingLabel()}.
+              {t(
+                shared()
+                  ? 'calls.teamShareAskedShare'
+                  : 'calls.teamShareAskedPrivate',
+                { name: requester() }
+              )}
+              . {waitingLabel()}.
             </span>
           </Match>
         </Switch>

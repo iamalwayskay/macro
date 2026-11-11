@@ -212,12 +212,22 @@ export class CallRecord extends FavoritableEntity<CallRecordDetail> {
   }
 
   /** The call's team sharing and any change awaiting approval. */
-  async teamShareState(): Promise<CallTeamShareState> {
-    return unwrap(
+  async teamShareState() {
+    const state: CallTeamShareState = unwrap(
       await this.client.storage.getTeamShareState({
         path: { call_id: this.id },
       }),
     );
+    return {
+      ...state,
+      pending: state.pending && {
+        ...state.pending,
+        requestedBy: User.byId(this.client, state.pending.requestedBy),
+        waitingOn: state.pending.waitingOn.map((id) =>
+          User.byId(this.client, id),
+        ),
+      },
+    };
   }
 
   /** Favorites identify call records as `call`. */
