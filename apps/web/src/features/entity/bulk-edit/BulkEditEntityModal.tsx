@@ -43,9 +43,20 @@ const BulkEditEntityModalContent = (props: {
     props.onError?.(error);
   };
 
+  // The item chips come before the footer, so Kobalte's default autofocus
+  // would land on the first chip and Enter would open that item. Focus the
+  // Delete button instead so Enter confirms; Escape still cancels.
+  let deleteButton: HTMLButtonElement | undefined;
+  const focusDeleteButton = (event: Event) => {
+    if (props.view !== 'delete' || !deleteButton) return;
+    event.preventDefault();
+    deleteButton.focus();
+  };
+
   return (
     <Dialog
       open={props.isOpen()}
+      onOpenAutoFocus={focusDeleteButton}
       position={props.view === 'moveToProject' ? 'top' : 'center'}
       class={props.view === 'moveToProject' ? 'w-140' : 'w-110'}
       onOpenChange={(open) => {
@@ -69,6 +80,9 @@ const BulkEditEntityModalContent = (props: {
             </Show>
             <Show when={props.view === 'delete'}>
               <BulkDeleteView
+                deleteButtonRef={(el) => {
+                  deleteButton = el;
+                }}
                 onPartialDelete={props.onPartialDelete}
                 entities={props.entities}
                 onFinish={handleFinish}

@@ -1,6 +1,6 @@
 import { fireAndForget } from '@core/util/fireAndForget';
 import { ActionDialogShell, Button } from '@ui';
-import { createSignal, Show } from 'solid-js';
+import { createSignal, type Ref, Show } from 'solid-js';
 import { BulkDeleteFailure } from '../queries/bulk-delete-result';
 import { createBulkDeleteDssItemsMutation } from '../queries/dss';
 import type { EntityData } from '../types/entity';
@@ -18,6 +18,8 @@ export const BulkDeleteView = (props: {
   onCancel: () => void;
   onError?: (error: unknown) => void;
   onPartialDelete?: PartialDeleteHandler;
+  /** The confirm button, which the dialog focuses on open so Enter deletes. */
+  deleteButtonRef?: Ref<HTMLButtonElement>;
 }) => {
   const mutation = createBulkDeleteDssItemsMutation();
   const [remainingEntities, setRemainingEntities] =
@@ -84,6 +86,7 @@ export const BulkDeleteView = (props: {
           Cancel
         </Button>
         <Button
+          ref={props.deleteButtonRef}
           variant="secondary"
           onClick={() => fireAndForget(handleDelete(), 'bulk-delete')}
         >
