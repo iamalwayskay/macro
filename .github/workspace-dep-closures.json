@@ -7545,6 +7545,9 @@
     ],
     "fusionauth": [
       "crates/fusionauth",
+      "crates/macro_env",
+      "crates/macro_env_var",
+      "crates/macro_service_urls",
       "crates/upstream_error",
       "crates/workspace-hack"
     ],
@@ -11177,6 +11180,7 @@
       "crates/macro_authorization",
       "crates/macro_env",
       "crates/macro_env_var",
+      "crates/macro_service_urls",
       "crates/macro_tower_layers",
       "crates/macro_user_id",
       "crates/macro_uuid",
