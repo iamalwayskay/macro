@@ -218,8 +218,14 @@ and `google_gmail` identity providers and the services' Google URLs
   so sign in with Google from a browser on this machine.
 - The emulator keeps its state in memory: restarting its container returns it
   to the seed, while Macro's database keeps what it synced.
-- Google Calendar is not emulated. Calendar sync for an emulated account
-  finds no calendar.
+- The emulator is also those users' Google Calendar: the seed file gives them
+  calendars with repeating events, the calendar service syncs them, and the
+  emulator pushes each change to its webhook. Put an event on a calendar with
+  `POST /_emulator/mailboxes/{email}/calendars/primary/events` (Google's event
+  resource). A mailbox added through **Connect another account** gets calendar
+  sync. One connected only by signing in does not yet: the email service reads
+  that grant's scopes from Google's token-info endpoint, which is not behind a
+  service URL override.
 
 With real Google keys the emulator does not start and Google is used as before.
 
