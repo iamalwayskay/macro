@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use super::build::{BinariesDir, RUNTIME_IMAGE_TAG};
 use super::instance::{Instance, Port};
 use super::inventory::{RustService, services_for_mode};
-use super::{Mode, repo_root};
+use super::{Mode, microsoft_emulator, repo_root};
 
 #[cfg(test)]
 mod test;
@@ -69,6 +69,30 @@ pub fn tls_certs_dir() -> PathBuf {
     repo_root().join("infra/local/certs")
 }
 
+/// The sidecars a stack's resolved env turns on. They are not Rust services
+/// of ours, so they have no modes in the inventory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sidecars {
+    /// Forwards real Gmail watch notifications to the email service. On when
+    /// the env carries the forwarder's service-account key.
+    pub gmail_forwarder: bool,
+    /// The Outlook emulator, in place of Microsoft. On when the stack runs
+    /// its own FusionAuth and the env names no real Microsoft client.
+    pub outlook_emulator: bool,
+}
+
+impl Sidecars {
+    pub fn from_env(mode: Mode, env: &std::collections::BTreeMap<String, String>) -> Self {
+        Sidecars {
+            gmail_forwarder: mode.spec().runs_local_infra
+                && env
+                    .get("GMAIL_FORWARDER_SA_KEY")
+                    .is_some_and(|key| !key.trim().is_empty()),
+            outlook_emulator: microsoft_emulator::stands_in(mode, env),
+        }
+    }
+}
+
 /// Build the override (typed model), apply the merge tags, and write it.
 /// `static_frontend` mounts the staged app bundle into the proxy (headless
 /// stacks serve the frontend from Caddy instead of a dev server).
@@ -77,7 +101,7 @@ pub fn generate(
     instance: &Instance,
     binaries: &BinariesDir,
     static_frontend: bool,
-    gmail_forwarder: bool,
+    sidecars: Sidecars,
 ) -> Result<PathBuf> {
     super::tls::issue(instance)?;
     let mut services: IndexMap<String, Option<dct::Service>> = IndexMap::new();
@@ -120,7 +144,28 @@ pub fn generate(
     // stacks sync independently — a subscription is a queue, not a broadcast,
     // so sharing one would make instances steal each other's notifications.
     // Gated on the SA key being present in the resolved env.
-    if gmail_forwarder && mode.spec().runs_local_infra {
+    if sidecars.outlook_emulator {
+        let mut volumes = mounts.clone();
+        volumes.push(microsoft_emulator::seed_volume());
+        services.insert(
+            microsoft_emulator::SERVICE.to_string(),
+            Some(dct::Service {
+                image: Some(RUNTIME_IMAGE_TAG.to_string()),
+                volumes: volumes.into_iter().map(dct::Volumes::Simple).collect(),
+                command: Some(dct::Command::Args(microsoft_emulator::command(instance))),
+                ports: dct::Ports::Short(vec![microsoft_emulator::published_port(instance)]),
+                // The services call it on their network; FusionAuth, which
+                // discovers its endpoints and exchanges sign-in codes with
+                // it, only joins `auth`.
+                networks: net_aliases(&[
+                    ("services", &[microsoft_emulator::network_alias()]),
+                    ("auth", &[microsoft_emulator::network_alias()]),
+                ]),
+                ..Default::default()
+            }),
+        );
+    }
+    if sidecars.gmail_forwarder {
         services.insert(
             "gmail_forwarder".to_string(),
             Some(dct::Service {

@@ -113,6 +113,9 @@ pub enum Port {
     PreviewSsh = 2222,
     /// Local wildcard preview TLS listener.
     PreviewHttps = 8443,
+    /// The Outlook emulator: Microsoft's sign-in page for the browser, and
+    /// its control API.
+    OutlookEmulator = 8481,
 }
 
 impl Port {

@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::build::{BinariesDir, RUNTIME_IMAGE_TAG};
 use super::instance::Port;
+use super::microsoft_emulator;
 use super::inventory::services_for_mode;
 use super::local_env::Tunnels;
 use super::{Mode, arch, env_layer, gen_compose, instance::Instance, proxy, workspace_root};
@@ -53,11 +54,8 @@ fn local_compose_flavor(instance: &Instance, mode: Mode, static_frontend: bool) 
         Tunnels::default(),
         true,
     )?;
-    let gmail_forwarder = resolved
-        .merged
-        .get("GMAIL_FORWARDER_SA_KEY")
-        .is_some_and(|key| !key.trim().is_empty());
-    gen_compose::generate(mode, instance, &binaries, static_frontend, gmail_forwarder)?;
+    let sidecars = gen_compose::Sidecars::from_env(mode, &resolved.merged);
+    gen_compose::generate(mode, instance, &binaries, static_frontend, sidecars)?;
 
     let files = gen_compose::compose_files(instance);
     let mut cmd = gen_compose::docker_compose(instance, &files, &resolved.generated_path);
@@ -111,7 +109,19 @@ fn local_compose_flavor(instance: &Instance, mode: Mode, static_frontend: bool) 
     }
     // The sidecar is not in `services_for_mode` (modes-less inventory entry) —
     // assert its presence and runtime-image shape when the env gates it in.
-    if gmail_forwarder {
+    if sidecars.outlook_emulator {
+        match services.get(microsoft_emulator::SERVICE) {
+            None => failures.push(
+                "outlook_emulator sidecar is absent although no real Microsoft client is configured"
+                    .into(),
+            ),
+            Some(node) if !has_app_out_mount(node) => {
+                failures.push("outlook_emulator is missing the /app/out bind mount".into());
+            }
+            Some(_) => {}
+        }
+    }
+    if sidecars.gmail_forwarder {
         match services.get("gmail_forwarder") {
             None => failures.push(
                 "gmail_forwarder sidecar is absent although GMAIL_FORWARDER_SA_KEY is set".into(),
@@ -134,10 +144,11 @@ fn local_compose_flavor(instance: &Instance, mode: Mode, static_frontend: bool) 
         "validate-local-compose ({}): OK ({} Rust services{})",
         flavor_label(static_frontend),
         services_for_mode(mode).count(),
-        if gmail_forwarder {
-            " + gmail_forwarder"
-        } else {
-            ""
+        match (sidecars.outlook_emulator, sidecars.gmail_forwarder) {
+            (true, true) => " + outlook_emulator + gmail_forwarder",
+            (true, false) => " + outlook_emulator",
+            (false, true) => " + gmail_forwarder",
+            (false, false) => "",
         }
     );
     Ok(())

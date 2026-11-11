@@ -468,11 +468,8 @@ fn remount(
     new: &super::build::BinariesDir,
     state: &StackState,
 ) -> Result<()> {
-    let gmail_forwarder = env
-        .merged
-        .get("GMAIL_FORWARDER_SA_KEY")
-        .is_some_and(|key| !key.trim().is_empty());
-    super::gen_compose::generate(mode, instance, new, state.serves_bundle(), gmail_forwarder)?;
+    let sidecars = super::gen_compose::Sidecars::from_env(mode, &env.merged);
+    super::gen_compose::generate(mode, instance, new, state.serves_bundle(), sidecars)?;
     let mut up = super::compose_cmd(instance, env);
     up.args([
         "up",
@@ -484,8 +481,11 @@ fn remount(
     for svc in super::inventory::services_for_mode(mode) {
         up.arg(svc.compose_name);
     }
-    if gmail_forwarder {
+    if sidecars.gmail_forwarder {
         up.arg("gmail_forwarder");
+    }
+    if sidecars.outlook_emulator {
+        up.arg(super::microsoft_emulator::SERVICE);
     }
     stage.run("Remounting Rust services", &mut up)?;
     write_state(

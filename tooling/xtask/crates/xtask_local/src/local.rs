@@ -36,6 +36,7 @@ pub mod kickstart;
 pub mod local_env;
 pub mod localstack;
 pub mod mailpit;
+pub mod microsoft_emulator;
 pub mod opensearch;
 pub mod portmap;
 pub mod proxy;
@@ -980,11 +981,8 @@ fn prepare(
     // through the proxy in every mode), and — for the self-contained local
     // stacks — the FusionAuth kickstart. (External networks/volumes are created
     // by the caller after the background teardown joins.)
-    let gmail_forwarder = env
-        .merged
-        .get("GMAIL_FORWARDER_SA_KEY")
-        .is_some_and(|key| !key.trim().is_empty());
-    gen_compose::generate(mode, instance, &binaries, static_frontend, gmail_forwarder)?;
+    let sidecars = gen_compose::Sidecars::from_env(mode, &env.merged);
+    gen_compose::generate(mode, instance, &binaries, static_frontend, sidecars)?;
     proxy::write_caddyfile(instance, mode, static_frontend)?;
     if mode == Mode::Local {
         portmap::write(instance)?;
@@ -992,7 +990,16 @@ fn prepare(
     if mode.spec().runs_local_infra {
         let google = kickstart::GoogleIdp::from_env(&env.merged);
         let github = kickstart::GithubIdp::from_env(&env.merged);
-        fusionauth::write_kickstart(instance, google.as_ref(), github.as_ref())?;
+        // Without a real Microsoft client the stack's Outlook emulator is
+        // Microsoft.
+        let microsoft =
+            microsoft_emulator::stands_in(mode, &env.merged).then(microsoft_emulator::idp);
+        fusionauth::write_kickstart(
+            instance,
+            google.as_ref(),
+            github.as_ref(),
+            microsoft.as_ref(),
+        )?;
     }
     if args.build.build_aux_services {
         build_aux_service_images(stage, instance, &env)?;
@@ -1674,7 +1681,10 @@ pub fn gen_compose_only(args: &cli::InstanceArgs) -> Result<()> {
     let instance = Instance::resolve(args.instance.as_deref(), args.port_base)?;
     let target = arch::detect()?;
     let binaries = build::BinariesDir::TargetDir(workspace_root().join(target.debug_dir()));
-    let path = gen_compose::generate(Mode::Local, &instance, &binaries, false, false)?;
+    // No env is resolved here, so the sidecars are those of a stack without
+    // integration secrets: the Outlook emulator, and no Gmail forwarder.
+    let sidecars = gen_compose::Sidecars::from_env(Mode::Local, &std::collections::BTreeMap::new());
+    let path = gen_compose::generate(Mode::Local, &instance, &binaries, false, sidecars)?;
     println!("{}", path.display());
     Ok(())
 }

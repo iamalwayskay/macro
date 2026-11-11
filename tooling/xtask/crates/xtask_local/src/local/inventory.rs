@@ -10,6 +10,7 @@
 
 use super::Mode;
 use super::instance::Port;
+use super::microsoft_emulator;
 
 /// A Rust service whose binary the orchestrator builds on the host and mounts
 /// into the runtime image at `/app/out/<cargo_bin>`. Several fields document
@@ -168,6 +169,20 @@ pub const RUST_SERVICES: &[RustService] = &[
         compose_name: "gmail_forwarder",
         cargo_bin: "seed_cli",
         package: "seed_cli",
+        host_port: None,
+        path_prefix: None,
+        is_websocket: false,
+        modes: &[],
+        opt_in: false,
+    },
+    RustService {
+        // Not a service of ours: the Outlook emulator binary, shipped into
+        // /app/out for the outlook_emulator sidecar (a bespoke gen_compose
+        // block, hence no modes) that stands in for Microsoft on a stack
+        // with no real Microsoft client.
+        compose_name: microsoft_emulator::SERVICE,
+        cargo_bin: "outlook_emulator",
+        package: "outlook_emulator",
         host_port: None,
         path_prefix: None,
         is_websocket: false,

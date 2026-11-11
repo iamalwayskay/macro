@@ -19,6 +19,10 @@ const RECONCILE_LAMBDA: xtask_paths::RepoFile<'static> = xtask_paths::RepoFile::
     "infra/stacks/fusionauth-instance/templates/reconcile_secondary_idp_link.js",
 );
 
+const MICROSOFT_RECONCILE_LAMBDA: xtask_paths::RepoFile<'static> = xtask_paths::RepoFile::new(
+    "infra/stacks/fusionauth-instance/templates/reconcile_microsoft_signin.js",
+);
+
 fn read_lambda(file: xtask_paths::RepoFile<'static>) -> Result<String> {
     let path = xtask_paths::repo_root().join(file.as_str());
     std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
@@ -29,25 +33,32 @@ fn read_lambda(file: xtask_paths::RepoFile<'static>) -> Result<String> {
 /// run_local pre-seeds no users — passwordless login auto-creates any user on
 /// demand. `google` (from the resolved run env) additionally configures the
 /// `google`/`google_gmail` OIDC IdPs so the email connect flows work locally,
-/// and `github` the `github` IdP that `POST /link/github` resolves; the
+/// `github` the `github` IdP that `POST /link/github` resolves, and
+/// `microsoft` (the stack's Outlook emulator) the `microsoft` IdP that Sign
+/// in with Microsoft and `POST /link/outlook` resolve; the
 /// generated file is gitignored, and the init-snapshot key hashes it, so
-/// adding/removing either client re-inits the stack automatically.
+/// adding/removing any of them re-inits the stack automatically.
 pub fn write_kickstart(
     instance: &Instance,
     google: Option<&kickstart::GoogleIdp>,
     github: Option<&kickstart::GithubIdp>,
+    microsoft: Option<&kickstart::MicrosoftIdp>,
 ) -> Result<()> {
     let dir = gen_compose::kickstart_dir(instance);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("creating kickstart dir {}", dir.display()))?;
 
-    let doc = kickstart::build(
+    let mut doc = kickstart::build(
         redirect_urls(instance)?,
         &read_lambda(POPULATE_JWT_LAMBDA)?,
         &read_lambda(RECONCILE_LAMBDA)?,
         google,
         github,
     );
+    if let Some(microsoft) = microsoft {
+        let lambda = read_lambda(MICROSOFT_RECONCILE_LAMBDA)?;
+        kickstart::add_microsoft_idp(&mut doc, microsoft, &lambda);
+    }
     let json = serde_json::to_string_pretty(&doc)? + "\n";
     std::fs::write(dir.join("kickstart.json"), json)
         .with_context(|| format!("writing {}", dir.join("kickstart.json").display()))?;
@@ -65,12 +76,14 @@ pub fn write_kickstart(
 /// login with `InvalidTenantIdException` — while the key never changed, so the
 /// bad snapshot was sticky. The fetch below succeeds only once the API key,
 /// the tenant, and the application all exist (the kickstart creates the
-/// application after the tenant).
+/// application after the tenant), and when the kickstart ends with an
+/// identity provider, once that exists too: FusionAuth serves its API while
+/// the providers after the application are still being created.
 pub fn wait_ready(stage: &Stage, instance: &Instance) -> Result<()> {
     let url = format!(
-        "http://localhost:{}/api/application/{}",
+        "http://localhost:{}{}",
         instance.port(Port::FusionAuth),
-        identity::APPLICATION_ID,
+        kickstart_marker(instance)?,
     );
     // Require an actual 200: `curl -f` only fails on 400+, so FusionAuth's
     // maintenance-mode 302 (e.g. after a boot-time DB connect failure) would
@@ -83,6 +96,27 @@ pub fn wait_ready(stage: &Stage, instance: &Instance) -> Result<()> {
     let mut cmd = Command::new("bash");
     cmd.arg("-lc").arg(script);
     stage.run("Waiting for FusionAuth (kickstart)", &mut cmd)
+}
+
+/// The API path that answers 200 once the kickstart has applied: the
+/// identity provider its last request creates, which is created at its own
+/// URL, or the application when the kickstart defines no provider.
+fn kickstart_marker(instance: &Instance) -> Result<String> {
+    let path = gen_compose::kickstart_dir(instance).join("kickstart.json");
+    let raw = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let doc: serde_json::Value =
+        serde_json::from_slice(&raw).with_context(|| format!("parsing {}", path.display()))?;
+    let last = doc
+        .pointer("/requests")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|requests| requests.last())
+        .and_then(|request| request.get("url"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|url| url.starts_with("/api/identity-provider/"));
+    Ok(match last {
+        Some(url) => url.to_string(),
+        None => format!("/api/application/{}", identity::APPLICATION_ID),
+    })
 }
 
 fn redirect_urls(instance: &Instance) -> Result<Vec<String>> {
