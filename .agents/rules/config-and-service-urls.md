@@ -49,7 +49,10 @@ startup loudly.
 - A third-party host with a test double is typed the same way, outside the
   hand-copied table: `MicrosoftGraphUrl` is Microsoft's host in every
   environment, and `OVERRIDE_MICROSOFT_GRAPH_URL` points the Outlook client
-  at `crates/outlook_emulator`.
+  at `crates/outlook_emulator`. A host a browser also opens gets two types,
+  because a container and a browser reach a local double at different
+  addresses: `MicrosoftLoginUrl` for the calls a service makes and
+  `MicrosoftLoginPageUrl` for the pages.
 - Keep registered public OAuth identities separate from internal gateway API
   routes. Do not store stable URLs in Doppler; reserve it for secrets and
   infrastructure-generated addresses (such as preview DNS and SSH hosts).
