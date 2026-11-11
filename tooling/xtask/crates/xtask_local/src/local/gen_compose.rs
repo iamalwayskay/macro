@@ -154,7 +154,12 @@ pub fn generate(
                 volumes: volumes.into_iter().map(dct::Volumes::Simple).collect(),
                 command: Some(dct::Command::Args(google_emulator::command())),
                 ports: dct::Ports::Short(vec![google_emulator::published_port(instance)]),
-                networks: net_aliases(&[("services", &[google_emulator::network_alias()])]),
+                // The services call it on their network; FusionAuth, which
+                // exchanges sign-in codes with it, only joins `auth`.
+                networks: net_aliases(&[
+                    ("services", &[google_emulator::network_alias()]),
+                    ("auth", &[google_emulator::network_alias()]),
+                ]),
                 ..Default::default()
             }),
         );
