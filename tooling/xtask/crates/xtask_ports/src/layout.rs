@@ -113,6 +113,9 @@ pub enum Port {
     PreviewSsh = 2222,
     /// Local wildcard preview TLS listener.
     PreviewHttps = 8443,
+    /// The Gmail emulator: Google's sign-in page for the browser, and its
+    /// control API.
+    GmailEmulator = 8480,
 }
 
 impl Port {
