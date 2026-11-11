@@ -700,6 +700,39 @@ service_url! {
 }
 
 service_url! {
+    /// Google's OAuth authorization endpoint, where a browser goes to sign in
+    /// and consent. Google's host in every environment; override it to run
+    /// against `crates/gmail_emulator`. The override is opened by a browser,
+    /// so it names an address the browser reaches, not an in-network one.
+    pub struct GoogleOauthAuthorizationUrl {
+        local: "https://accounts.google.com/o/oauth2/v2/auth",
+        dev: "https://accounts.google.com/o/oauth2/v2/auth",
+        prod: "https://accounts.google.com/o/oauth2/v2/auth",
+    }
+}
+
+service_url! {
+    /// Google's OAuth token endpoint: authorization code exchange and token
+    /// refresh. Google's host in every environment; override it to run
+    /// against `crates/gmail_emulator`.
+    pub struct GoogleOauthTokenUrl {
+        local: "https://oauth2.googleapis.com/token",
+        dev: "https://oauth2.googleapis.com/token",
+        prod: "https://oauth2.googleapis.com/token",
+    }
+}
+
+service_url! {
+    /// Google's OAuth token revocation endpoint. Google's host in every
+    /// environment; override it to run against `crates/gmail_emulator`.
+    pub struct GoogleOauthRevokeUrl {
+        local: "https://oauth2.googleapis.com/revoke",
+        dev: "https://oauth2.googleapis.com/revoke",
+        prod: "https://oauth2.googleapis.com/revoke",
+    }
+}
+
+service_url! {
     /// Control and internal MCP surface of the live preview service.
     pub struct PreviewGatewayUrl {
         local: "http://localhost:8101/preview",
