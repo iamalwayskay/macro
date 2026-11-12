@@ -77,10 +77,8 @@ pub fn build(artifact: Artifact) -> Step<Run> {
             "${{ secrets.SEGMENT_WRITE_KEY_PRODUCTION }}",
         ))
         .add_env(("VITE_POSTHOG_API_KEY", vars::POSTHOG_API_KEY))
-        .add_env((
-            "VITE_OTEL_EXPORTER_URL",
-            "https://macro-prox-prod.macroverse.workers.dev/i/otlp/v1/traces",
-        ))
+        // Browser OTLP is off by default; point this at your own collector to enable it.
+        .add_env(("VITE_OTEL_EXPORTER_URL", ""))
         .add_env(("VITE_OTEL_ENV", "prod"))
 }
 

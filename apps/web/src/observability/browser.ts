@@ -95,8 +95,10 @@ export async function initializeBrowserObservability(
   import.meta.hot?.dispose(() => {
     disposed = true;
   });
+  // An empty exporter URL means browser OTLP is off for this build; fall back
+  // to the local dev collector only while hot-reloading.
   const configuredTracesUrl =
-    import.meta.env.VITE_OTEL_EXPORTER_URL ??
+    import.meta.env.VITE_OTEL_EXPORTER_URL ||
     (import.meta.hot ? localDevelopmentTracesUrl() : undefined);
   // Local stacks use a same-origin path; exporters expect an absolute URL.
   const fallbackTracesUrl = configuredTracesUrl

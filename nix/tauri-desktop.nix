@@ -43,9 +43,8 @@
       posthogApiKey = builtins.getEnv "VITE_POSTHOG_API_KEY";
 
       # Without an exporter URL the bundle records spans and logs but never
-      # sends them. Default to the production OTLP proxy like the iOS build
-      # (`ios_production_telemetry` in `apps/web/scripts/ios-native-env.sh`);
-      # export either variable and build with `--impure` to send elsewhere.
+      # sends them. Export `VITE_OTEL_EXPORTER_URL` and build with `--impure`
+      # to send traces to your own collector.
       # Export stays behind the `enable-browser-otel` PostHog flag.
       envOr =
         name: fallback:
@@ -53,7 +52,7 @@
           value = builtins.getEnv name;
         in
         if value == "" then fallback else value;
-      otelExporterUrl = envOr "VITE_OTEL_EXPORTER_URL" "https://macro-prox-prod.macroverse.workers.dev/i/otlp/v1/traces";
+      otelExporterUrl = envOr "VITE_OTEL_EXPORTER_URL" "";
       otelEnv = envOr "VITE_OTEL_ENV" "prod";
 
       rustToolchain = fenix.packages.${system}.fromToolchainFile {

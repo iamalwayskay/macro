@@ -309,10 +309,13 @@ version for release; `publish` releases only the committed version + build,
 so a held version whose build number was moved by a hand release must be
 released from App Store Connect.
 
-`just ios-build` and `just ios-release` export frontend traces and logs to the
-production OTLP proxy
-(`ios_production_telemetry` in `scripts/ios-native-env.sh`); set
-`VITE_OTEL_EXPORTER_URL` and `VITE_OTEL_ENV` to send them elsewhere.
+`just ios-build` and `just ios-release` ship with no frontend trace or log
+exporter by default (`ios_production_telemetry` in
+`scripts/ios-native-env.sh`); set `VITE_OTEL_EXPORTER_URL` to your own
+collector (and `VITE_OTEL_ENV` for the environment label) to enable.
+`ios_require_posthog_key` fetches `VITE_POSTHOG_API_KEY` from Doppler
+(`web-release/prd`) when unset; a build without a key ships with PostHog
+disabled.
 
 ## One-time repository setup
 

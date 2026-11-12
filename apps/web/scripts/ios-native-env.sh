@@ -54,20 +54,24 @@ ios_activate_toolchain() {
 }
 
 ios_require_posthog_key() {
-  # Production analytics must be configured before Vite embeds the key.
+  # PostHog is optional: a build without a key ships with PostHog disabled.
+  # When no key is set, try the configured secret store before falling back.
   if [[ -z "${VITE_POSTHOG_API_KEY:-}" ]]; then
-    if ! VITE_POSTHOG_API_KEY="$(doppler secrets get VITE_POSTHOG_API_KEY \
+    if VITE_POSTHOG_API_KEY="$(doppler secrets get VITE_POSTHOG_API_KEY \
       --project web-release --config prd --plain --raw --no-check-version 2>/dev/null)" \
-      || [[ -z "$VITE_POSTHOG_API_KEY" ]]; then
-      echo "Unable to fetch VITE_POSTHOG_API_KEY. Install the Doppler CLI and authenticate with read access to web-release/prd, or supply VITE_POSTHOG_API_KEY in the environment." >&2
-      exit 1
+      && [[ -n "$VITE_POSTHOG_API_KEY" ]]; then
+      export VITE_POSTHOG_API_KEY
+    else
+      echo "No VITE_POSTHOG_API_KEY set and none fetched from Doppler; building with PostHog disabled." >&2
     fi
+  else
+    export VITE_POSTHOG_API_KEY
   fi
-  export VITE_POSTHOG_API_KEY
 }
 
 ios_production_telemetry() {
-  # Without an exporter the app sends no traces or logs to Datadog.
-  export VITE_OTEL_EXPORTER_URL="${VITE_OTEL_EXPORTER_URL:-https://macro-prox-prod.macroverse.workers.dev/i/otlp/v1/traces}"
+  # Without an exporter the app sends no traces or logs. Set
+  # VITE_OTEL_EXPORTER_URL to your own collector to enable.
+  export VITE_OTEL_EXPORTER_URL="${VITE_OTEL_EXPORTER_URL:-}"
   export VITE_OTEL_ENV="${VITE_OTEL_ENV:-prod}"
 }
