@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Biome lint of the whole web app (9,657 files, about 7 s). This is the only check that fits
+# the Stop-hook budget on this machine:
+#   - `bun run check` (tsc --noEmit on apps/web) aborts with SIGABRT (out of memory, 2026-11-12);
+#   - the Rust workspace test suite and the vitest suite each need far more than 5 minutes.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+exec nice -n 10 bun run lint
