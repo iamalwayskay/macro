@@ -59,7 +59,7 @@
         "RESOURCE_URL": "https://mcp-chatgpt-worker-dev.macroverse.workers.dev/mcp",
         "AUTHORIZATION_SERVER_URL": "https://mcp-server-dev.macro.com",
         "TOOL_GROUPING": "entity",
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://macro-prox-dev.macroverse.workers.dev/i/otlp/v1/traces"
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp.example.com/i/otlp/v1/traces"
       }
     },
     "prod": {
@@ -72,7 +72,7 @@
         "RESOURCE_URL": "https://mcp-chatgpt-worker.macroverse.workers.dev/mcp",
         "AUTHORIZATION_SERVER_URL": "https://mcp-server.macro.com",
         "TOOL_GROUPING": "entity",
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://macro-prox-prod.macroverse.workers.dev/i/otlp/v1/traces"
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp.example.com/i/otlp/v1/traces"
       }
     }
   }

@@ -103,7 +103,8 @@ name = "sync-service-dev3"
 INTERNAL_API_SECRET_KEY = "SYNC_SERVICE_KEY_DEV"
 ENVIRONMENT = "development"
 # The proxy injects the Datadog key; the exporter appends the signal path.
-OTEL_EXPORTER_OTLP_ENDPOINT = "https://macro-prox-dev.macroverse.workers.dev/i/otlp"
+# Placeholder OTLP endpoint. Point this at your own collector to receive worker traces.
+OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.com/i/otlp"
 SPS_URL = "https://dev-gateway.macro.com/search-processing"
 DSS_URL = "https://dev-gateway.macro.com/dss"
 LEXICAL_SERVICE_URL = "https://dev-gateway.macro.com/lexical"
@@ -144,7 +145,7 @@ name = "sync-service-prod2"
 INTERNAL_API_SECRET_KEY = "SYNC_SERVICE_KEY_PROD"
 ENVIRONMENT = "production"
 # The proxy injects the Datadog key; the exporter appends the signal path.
-OTEL_EXPORTER_OTLP_ENDPOINT = "https://macro-prox-prod.macroverse.workers.dev/i/otlp"
+OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.com/i/otlp"
 SPS_URL = "https://gateway.macro.com/search-processing"
 DSS_URL = "https://gateway.macro.com/dss"
 LEXICAL_SERVICE_URL = "https://gateway.macro.com/lexical"

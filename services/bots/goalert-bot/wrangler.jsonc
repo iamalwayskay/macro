@@ -26,7 +26,8 @@
 		"CHANNEL_ID": "019fb34d-fcfd-7548-9a0f-7084ea16416c",
 		// Tags exported spans with deployment.environment (matches DD_ENV).
 		"ENVIRONMENT": "production",
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "https://macro-prox-prod.macroverse.workers.dev/i/otlp/v1/traces"
+		// Placeholder OTLP endpoint. Point this at your own collector to receive worker traces.
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "https://otlp.example.com/i/otlp/v1/traces"
 	},
 	"kv_namespaces": [
 		{
