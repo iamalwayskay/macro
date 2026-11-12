@@ -43,8 +43,24 @@
          after it executes (the SPA renders no text until then). -->
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/roboto-slab-variable.woff2" />
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/inter-variable.woff2" />
-    <link rel="preconnect" href="https://www.googletagmanager.com" />
+    <!-- Preconnect for Google tag scripts. Restore when VITE_GA_ID or
+         VITE_GOOGLE_ADS_ID is set. -->
+    <!-- <link rel="preconnect" href="https://www.googletagmanager.com" /> -->
     <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"/>
+    <!-- Meta Pixel: disabled by default so the site sends nothing to Meta.
+         To enable, delete this no-op stub, restore the pixel block below
+         with your pixel id, set VITE_META_PIXEL_ID for the bundle, and
+         restore the noscript beacon in the body. -->
+    <script>
+      (function () {
+        function fbq() {
+          (window._fbq = window._fbq || []).push(arguments);
+        }
+        fbq.disablePushState = true;
+        window.fbq = fbq;
+      })();
+    </script>
+    <!--
     <script>
       if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         !function(f,b,e,v,n,t,s)
@@ -56,13 +72,15 @@
         s.parentNode.insertBefore(t,s)}(window, document,'script',
         'https://connect.facebook.net/en_US/fbevents.js');
         fbq.disablePushState = true;
-        fbq('init', '639142540393286');
+        fbq('init', 'YOUR_META_PIXEL_ID');
         fbq('track', 'PageView');
       }
     </script>
+    -->
   </head>
   <body>
-    <noscript><img alt="" height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=639142540393286&ev=PageView&noscript=1"/></noscript>
+    <!-- Meta Pixel noscript beacon. Restore with your pixel id. -->
+    <!-- <noscript><img alt="" height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=YOUR_META_PIXEL_ID&ev=PageView&noscript=1"/></noscript> -->
     <!-- For AI agents reading the DOM: hidden from sight, kept in page text and
          the accessibility tree. The link leaves the tab order so keyboard users
          don't land on something invisible. -->

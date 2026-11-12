@@ -144,8 +144,12 @@ export const createDeferredPosthog = (
       .then(load)
       .then((loaded) => {
         loaded.init(key, {
-          api_host: 'https://macro-prox.macroverse.workers.dev/i/ph',
-          ui_host: 'https://us.posthog.com',
+          // Standard PostHog US endpoints by default; override with
+          // VITE_POSTHOG_HOST to point at self-hosted PostHog or a proxy.
+          api_host:
+            import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+          ui_host:
+            import.meta.env.VITE_POSTHOG_UI_HOST ?? 'https://us.posthog.com',
           defaults: '2026-01-30',
           // Replay the original landing page and any early navigation exactly
           // once before handing future history-change pageviews to the SDK.

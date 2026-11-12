@@ -21,6 +21,19 @@
           : (light ? '#f5f1e8' : '#000000');
       })();
     </script>
+    <!-- Meta Pixel: disabled by default so the page sends nothing to Meta.
+         To enable, delete this no-op stub, restore the pixel block below
+         with your pixel id, and set VITE_META_PIXEL_ID for the bundle. -->
+    <script>
+      (function () {
+        function fbq() {
+          (window._fbq = window._fbq || []).push(arguments);
+        }
+        fbq.disablePushState = true;
+        window.fbq = fbq;
+      })();
+    </script>
+    <!--
     <script>
       if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         !function(f,b,e,v,n,t,s)
@@ -32,10 +45,11 @@
         s.parentNode.insertBefore(t,s)}(window, document,'script',
         'https://connect.facebook.net/en_US/fbevents.js');
         fbq.disablePushState = true;
-        fbq('init', '639142540393286');
+        fbq('init', 'YOUR_META_PIXEL_ID');
         fbq('track', 'PageView');
       }
     </script>
+    -->
 </head>
   <body>
     <!-- For AI agents reading the DOM: hidden from sight, kept in page text and

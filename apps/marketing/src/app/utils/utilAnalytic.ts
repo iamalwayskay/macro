@@ -19,11 +19,11 @@ declare const fbq: (
   options?: { eventID?: string }
 ) => void;
 
-/** GA4 measurement id. */
-const GA_ID = 'G-52HPEL3FTV';
+/** GA4 measurement id. Empty (default) disables Google Analytics. */
+const GA_ID = import.meta.env.VITE_GA_ID ?? '';
 
-/** Meta Pixel id — same pixel the base code in index.html initializes. */
-const META_PIXEL_ID = '639142540393286';
+/** Meta Pixel id — same pixel the base code in index.html initializes. Empty (default) disables Meta Pixel. */
+const META_PIXEL_ID = import.meta.env.VITE_META_PIXEL_ID ?? '';
 
 /**
  * Google Ads account id and Conversion Action labels, mirroring the app's
@@ -31,7 +31,7 @@ const META_PIXEL_ID = '639142540393286';
  * directly now that mobile email capture happens here instead of in the app —
  * keep the labels in step with that file.
  */
-const GOOGLE_ADS_ID = 'AW-11035820781';
+const GOOGLE_ADS_ID = import.meta.env.VITE_GOOGLE_ADS_ID ?? '';
 
 const GOOGLE_CONVERSION_LABELS = {
   /** Mobile web email capture — visitor submitted their email to get a desktop link. */
@@ -43,11 +43,12 @@ type GoogleConversionAction = keyof typeof GOOGLE_CONVERSION_LABELS;
 /** Meta Pixel standard events we fire — `fbq('track', ...)` only accepts these. */
 type MetaStandardEvent = 'Lead' | 'CompleteRegistration';
 
-// The old GTM container (GTM-M58X7PJ8) was removed: it is unpublished and
-// both gtm.js and ns.html returned 404 on every production page load.
+// The old GTM container was removed: it was unpublished and both gtm.js and
+// ns.html returned 404 on every production page load.
 const initializeGoogleAnalytics = () => {
   // Install the dataLayer stub immediately (no network) so gtag()/page_view
-  // calls made before the tag script arrives are queued, not lost.
+  // calls made before the tag script arrives are queued, not lost. With no
+  // IDs the stub drains events without loading gtag.js.
   const gaInit = document.createElement('script');
   // Registering the AW account on page load is what lets gtag pick up ?gclid=…
   // into the _gcl_aw cookie, so a later gtag('event', 'conversion', ...) fire
@@ -55,11 +56,12 @@ const initializeGoogleAnalytics = () => {
   gaInit.innerHTML = `
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', '${GA_ID}');
-    gtag('config', '${GOOGLE_ADS_ID}');
+    ${GA_ID ? `gtag('js', new Date()); gtag('config', '${GA_ID}');` : ''}
+    ${GOOGLE_ADS_ID ? `gtag('config', '${GOOGLE_ADS_ID}');` : ''}
   `;
   document.head.appendChild(gaInit);
+
+  if (!GA_ID) return;
 
   // Fetch gtag.js after first paint; queued dataLayer events drain on load.
   const loadTagScript = () => {
@@ -78,16 +80,14 @@ const initializeGoogleAnalytics = () => {
 // Meta Pixel base code is inlined in index.html so it fires before the JS
 // bundle parses (cold-load bouncers were silent when init lived here).
 
-// Same PostHog project + proxy as the app (js/app analytics.ts). The app is
-// served same-origin at macro.com/app/*, so the anonymous distinct_id created
-// here is the same person PostHog sees after signup — ad-landing UTMs become
-// $initial_utm_* on the eventual identified user.
+// The site and the app share one PostHog key (see the app's analytics
+// setup). The site's anonymous distinct_id is the same person PostHog sees
+// after signup, so ad-landing UTMs become $initial_utm_* on the eventual
+// identified user.
 const initializePosthog = () => {
-  // Public client-side key (ships in the bundle either way); env var wins so
-  // dev deploys can point elsewhere.
-  const key =
-    import.meta.env.VITE_POSTHOG_API_KEY ||
-    'phc_eSQcxAxPf0FAmnCTckz84305pNlMlOdDKciSKkuX0GO';
+  // The key is supplied at build time; without it the site sends nothing.
+  const key = import.meta.env.VITE_POSTHOG_API_KEY;
+  if (!key) return undefined;
 
   return createDeferredPosthog(key);
 };
