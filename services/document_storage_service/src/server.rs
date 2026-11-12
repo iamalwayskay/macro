@@ -746,13 +746,20 @@ async fn run_server() -> anyhow::Result<()> {
         .get_maybe_secret_value(env, CalEventTypeContentNamesKey::new()?)
         .await?;
 
+    // Empty pixel id or access token disables Meta export of Cal.com events.
+    let meta_pixel_id = MetaPixelId::new().ok().filter(|id| !id.as_ref().is_empty());
+    let meta_access_token = MetaAccessToken::new()
+        .ok()
+        .filter(|token| !token.as_ref().is_empty());
     let analytics_client = Arc::new(AnalyticsClient::new(AnalyticsClientConfig {
         google_analytics: None,
-        meta: Some(MetaConfig {
-            pixel_id: MetaPixelId::new()?.as_ref().to_string(),
-            access_token: MetaAccessToken::new()?.as_ref().to_string(),
-            test_event_code: MetaTestEventCode::new().map(|v| v.as_ref().to_string()),
-        }),
+        meta: meta_pixel_id
+            .zip(meta_access_token)
+            .map(|(pixel_id, access_token)| MetaConfig {
+                pixel_id: pixel_id.as_ref().to_string(),
+                access_token: access_token.as_ref().to_string(),
+                test_event_code: MetaTestEventCode::new().map(|v| v.as_ref().to_string()),
+            }),
         posthog: None,
     }));
 

@@ -352,11 +352,13 @@ async fn run_server() -> anyhow::Result<()> {
         .email_backfill_queue(&email_backfill_queue);
     tracing::trace!("initialized sqs client");
 
-    // Initialize analytics client with configured providers
+    // Initialize analytics client with configured providers. Empty ids mean
+    // the provider is off, so the defaults ship with no tracking.
     let analytics_client = Arc::new(AnalyticsClient::new(AnalyticsClientConfig {
         google_analytics: config
             .ga_measurement_id
             .value()
+            .filter(|measurement_id| !measurement_id.is_empty())
             .zip(config.ga_api_secret.value())
             .map(|(measurement_id, api_secret)| {
                 tracing::info!("configuring Google Analytics");
@@ -368,6 +370,7 @@ async fn run_server() -> anyhow::Result<()> {
         meta: config
             .meta_pixel_id
             .value()
+            .filter(|pixel_id| !pixel_id.is_empty())
             .zip(config.meta_access_token.value())
             .map(|(pixel_id, access_token)| {
                 tracing::info!("configuring Meta Conversions API");
