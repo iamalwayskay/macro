@@ -13,8 +13,8 @@
  * shared with `leadValues.ts` for now; rebalance there.
  */
 
-/** Google Ads account ID (the `AW-...` prefix). */
-export const GOOGLE_ADS_ID = 'AW-11035820781';
+/** Google Ads account ID (the `AW-...` prefix). Empty (default) disables ad conversion tracking. */
+export const GOOGLE_ADS_ID = import.meta.env.VITE_GOOGLE_ADS_ID ?? '';
 
 /**
  * Per-action conversion labels from the Ads UI.

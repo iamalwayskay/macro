@@ -19,14 +19,15 @@ function getMetaIds(): { fbp: string | undefined; fbc: string | undefined } {
  */
 function getGaClientId(): Promise<string | undefined> {
   return new Promise((resolve) => {
-    if (typeof gtag !== 'function') {
+    const GA_ID = import.meta.env.VITE_GA_ID ?? '';
+    if (typeof gtag !== 'function' || !GA_ID) {
       resolve(undefined);
       return;
     }
 
     const timeout = setTimeout(() => resolve(undefined), 500);
 
-    gtag('get', 'G-52HPEL3FTV', 'client_id', (clientId) => {
+    gtag('get', GA_ID, 'client_id', (clientId) => {
       clearTimeout(timeout);
       resolve(typeof clientId === 'string' ? clientId : undefined);
     });

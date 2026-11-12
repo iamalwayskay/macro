@@ -131,7 +131,8 @@ interface PageViewOptions {
   location?: string;
 }
 
-const GA_ID = 'G-52HPEL3FTV';
+const GA_ID = import.meta.env.VITE_GA_ID ?? '';
+const META_PIXEL_ID = import.meta.env.VITE_META_PIXEL_ID ?? '';
 
 // Meta Pixel distinguishes standard events (fbq('track', ...)) from custom
 // events (fbq('trackCustom', ...)). Calling `track` with a non-standard name
@@ -186,9 +187,14 @@ const initializePosthog = (instance: PostHog) => {
   const key = import.meta.env.VITE_POSTHOG_API_KEY;
   if (!key) return;
 
+  // Standard PostHog hosts serve the session recorder at its normal path. The
+  // rewrite below only applies to a privacy proxy that hides it under an
+  // opaque name.
+  const recorderProxy = import.meta.env.VITE_POSTHOG_RECORDER_PROXY === 'true';
+
   instance.init(key, {
-    api_host: 'https://macro-prox.macroverse.workers.dev/i/ph',
-    ui_host: 'https://us.posthog.com',
+    api_host: import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    ui_host: import.meta.env.VITE_POSTHOG_UI_HOST ?? 'https://us.posthog.com',
     defaults: '2026-01-30',
     // Scroll depth listens to every scroll in the app (capture phase) and
     // reads window geometry, forcing a layout per scroll. The app shell never
@@ -200,6 +206,7 @@ const initializePosthog = (instance: PostHog) => {
     // Runs before the first `/flags` request.
     loaded: setFlagEnvironment,
     prepare_external_dependency_script: (script) => {
+      if (!recorderProxy) return script;
       const url = new URL(script.src);
 
       if (url.pathname.endsWith(`/static/${POSTHOG_RECORDER_SCRIPT_NAME}`)) {
@@ -432,8 +439,8 @@ const createAnalytics = () => {
         ...(rest.os && { os: rest.os }),
       });
 
-      if (metaPixelEnabled) {
-        fbq('init', '639142540393286', {
+      if (metaPixelEnabled && META_PIXEL_ID) {
+        fbq('init', META_PIXEL_ID, {
           external_id: userID,
           em: email || undefined,
         });

@@ -7,6 +7,20 @@ interface ImportMetaEnv {
 
   readonly VITE_SEGMENT_WRITE_KEY: string;
   readonly VITE_POSTHOG_API_KEY: string;
+  /** PostHog capture origin. Default: standard PostHog cloud. Point this at your own PostHog or a privacy proxy. */
+  readonly VITE_POSTHOG_HOST?: string;
+  /** PostHog project UI origin (dashboard links only; no data is sent here). */
+  readonly VITE_POSTHOG_UI_HOST?: string;
+  /** `true` only when the PostHog host is a privacy proxy that serves the session-recorder script under an opaque name. */
+  readonly VITE_POSTHOG_RECORDER_PROXY?: string;
+  /** Your GA4 measurement ID (`G-…`). Empty (default) disables Google Analytics. */
+  readonly VITE_GA_ID?: string;
+  /** Your Google Tag Manager container ID (`GTM-…`). Empty (default) disables GTM. */
+  readonly VITE_GTM_ID?: string;
+  /** Your Meta Pixel ID. Empty (default) disables Meta Pixel. */
+  readonly VITE_META_PIXEL_ID?: string;
+  /** Your Google Ads conversion ID (`AW-…`). Empty (default) disables ad conversion tracking. */
+  readonly VITE_GOOGLE_ADS_ID?: string;
 
   /** `true` in bundles `just stack` builds, which count as local (`LOCAL_ONLY`). */
   readonly VITE_LOCAL_ONLY?: string;

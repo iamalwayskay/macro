@@ -123,10 +123,25 @@ describe('Meta pixel platform support', () => {
     }
   );
 
+  it('installs no-op stubs and no vendor scripts when no ids are configured', async () => {
+    const { analytics } = await import('./analytics');
+    expect(document.head.innerHTML).not.toContain('googletagmanager.com');
+    expect(document.head.innerHTML).not.toContain('connect.facebook.net');
+    expect(hasMetaPixel()).toBe(false);
+
+    // The no-op gtag/fbq queues keep these calls from throwing or touching the
+    // network.
+    analytics.track('test_event', {}, ['meta-pixel', 'ga', 'posthog']);
+    analytics.identify('test-user', {});
+    analytics.pageView('Inbox');
+    expect(hasMetaPixel()).toBe(false);
+  });
+
   it.each([false, true])(
     'keeps Meta initialization and tracking on web (touch: %s)',
     async (touch) => {
       mocks.touch = touch;
+      vi.stubEnv('VITE_META_PIXEL_ID', 'test-pixel-id');
       const { analytics } = await import('./analytics');
       expect(hasMetaPixel()).toBe(true);
 
