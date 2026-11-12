@@ -1,5 +1,6 @@
 import { EntityActivitySectionConditional } from '@app/features/activity/views/entity-activity-section';
 import { EntityPropertiesSection } from '@app/features/property/side-panel/properties';
+import { formatLocale, t } from '@app/lib/i18n';
 import { useCallContextOptional } from '@channel/Call/CallContext';
 import { CallTeamShareChangeStatus } from '@channel/Call/CallControls/CallTeamShareChangeStatus';
 import { useCallTeamShareChange } from '@channel/Call/use-call-team-share-change';
@@ -11,8 +12,12 @@ import {
 import type { SidePanelSectionLayout } from '@components/app/side-panel/SidePanel';
 import { References } from '@core/component/References';
 import { useUserId } from '@core/context/user';
-import { type DateValue, formatDate } from '@core/util/date';
+import { getDisplayNameParts } from '@core/user';
+import { tryMacroId } from '@core/user/macroId';
+import type { DateValue } from '@core/util/date';
 import { fireAndForget } from '@core/util/fireAndForget';
+import { OwnerLabel } from '@entity/owner/owner-display';
+import HashIcon from '@icon/system/regular/hash.svg';
 import {
   isCallSharedWithTeam,
   useSetCallRecordTeamShareMutation,
@@ -20,7 +25,8 @@ import {
 } from '@queries/call/call';
 import { useAttachmentReferencesQuery } from '@queries/storage/attachment-references';
 import type { CallRecord } from '@service-call/client';
-import { cn, InlineCheckbox } from '@ui';
+import { ToggleSwitch } from '@ui';
+import { isSameDay } from 'date-fns';
 import { Show, Suspense } from 'solid-js';
 import { formatCallDuration } from '../../utils';
 
@@ -33,11 +39,16 @@ export function CallSidePanelSections(props: CallSidePanelSectionsProps) {
   return (
     <>
       <SidePanel.Footer>
-        <DetailsSectionContent record={props.record} />
+        <div class="flex flex-col gap-4">
+          <DetailsSectionContent record={props.record} />
+          <Show when={props.record.channelId != null}>
+            <SharingSectionContent record={props.record} />
+          </Show>
+        </div>
       </SidePanel.Footer>
       <SidePanel.Section
         id="properties"
-        title="Properties"
+        title={t('calls.detailProperties')}
         defaultOpen
         order={15}
         render={(renderSection) => (
@@ -47,11 +58,6 @@ export function CallSidePanelSections(props: CallSidePanelSectionsProps) {
           />
         )}
       />
-      <Show when={props.record.channelId != null}>
-        <SidePanel.Section id="sharing" title="Sharing" order={20}>
-          <SharingSectionContent record={props.record} />
-        </SidePanel.Section>
-      </Show>
       <EntityActivitySectionConditional
         entityId={props.record.callId}
         entityType="CALL_RECORD"
@@ -68,37 +74,67 @@ function DetailsSectionContent(props: { record: CallRecord }) {
   const startedAt = (): DateValue | undefined => record().startedAt;
   const endedAt = (): DateValue | undefined => record().endedAt ?? undefined;
   const durationMs = () => record().durationMs ?? undefined;
+  const dateText = (value: DateValue, timeOnly = false) =>
+    new Intl.DateTimeFormat(formatLocale(), {
+      ...(timeOnly ? {} : { month: 'short', day: 'numeric' }),
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(value));
 
   return (
-    <EntityMetadata ownerId={record().createdBy}>
+    <EntityMetadata>
+      <EntityMetadataRow label={t('calls.detailOwner')}>
+        <OwnerLabel ownerId={record().createdBy} textOnly suppressClick />
+      </EntityMetadataRow>
       <Show when={startedAt()}>
         {(value) => (
-          <EntityMetadataRow label="Started">
-            {formatDate(value(), { showTime: true })}
+          <EntityMetadataRow label={t('calls.detailStarted')}>
+            {dateText(value())}
           </EntityMetadataRow>
         )}
       </Show>
       <Show when={endedAt()}>
         {(value) => (
-          <EntityMetadataRow label="Ended">
-            {formatDate(value(), { showTime: true })}
+          <EntityMetadataRow label={t('calls.detailEnded')}>
+            {dateText(
+              value(),
+              isSameDay(new Date(record().startedAt), new Date(value()))
+            )}
           </EntityMetadataRow>
         )}
       </Show>
       <Show when={durationMs()}>
         {(ms) => (
-          <EntityMetadataRow label="Duration">
+          <EntityMetadataRow label={t('calls.detailDuration')}>
             {formatCallDuration(ms())}
           </EntityMetadataRow>
         )}
       </Show>
-      <EntityMetadataRow label="Status">
-        {record().isActive ? 'In progress' : 'Ended'}
+      <EntityMetadataRow label={t('calls.detailStatus')}>
+        {record().isActive
+          ? t('calls.detailInProgress')
+          : statusLabel(record().status)}
       </EntityMetadataRow>
+      <Show when={record().channelName}>
+        {(channel) => (
+          <EntityMetadataRow label={t('calls.detailChannel')}>
+            <span class="inline-flex items-center gap-1">
+              <HashIcon class="size-3.5" />
+              {channel()}
+            </span>
+          </EntityMetadataRow>
+        )}
+      </Show>
     </EntityMetadata>
   );
 }
 
+function statusLabel(status: CallRecord['status']) {
+  if (status === 'ATTENDED') return t('calls.detailAttended');
+  if (status === 'MISSED') return t('calls.detailMissed');
+  if (status === 'UNATTENDED') return t('calls.detailUnattended');
+  return t('calls.detailEnded');
+}
 function PropertiesSectionContent(props: {
   record: CallRecord;
   renderSection: SidePanelSectionLayout;
@@ -140,7 +176,7 @@ function SharingSectionContent(props: { record: CallRecord }) {
   // it takes effect once the other participants approve.
   const canEdit = () => record().isActive || record().createdBy === userId();
   const isPending = () => toggleLiveShare.isPending || setTeamShare.isPending;
-  const isDisabled = () => isPending() || !canEdit() || !!change.pending();
+  const isDisabled = () => isPending() || !!change.pending();
   const answer = (approve: boolean) =>
     fireAndForget(answerChange(approve), 'call-sharing');
   const answerChange = async (approve: boolean) => {
@@ -152,6 +188,7 @@ function SharingSectionContent(props: { record: CallRecord }) {
 
   const handleChange = async (checked: boolean) => {
     const current = record();
+    if (!canEdit() || isPending()) return;
     if (!current.channelId) return;
     try {
       if (!current.isActive) {
@@ -171,40 +208,48 @@ function SharingSectionContent(props: { record: CallRecord }) {
     }
   };
 
-  const description = () => {
-    if (record().isActive) {
-      return "Lets everyone on the creator's team view this call's chat, transcript, and AI summary once it ends. Changes apply once everyone on the call approves.";
-    }
-    if (canEdit()) {
-      return "Lets everyone on your team view this call's chat, transcript, and AI summary. Changes apply once everyone on the call approves.";
-    }
-    return isShared()
-      ? "Everyone on the creator's team can view this call's chat, transcript, and AI summary."
-      : "Only the call's creator can propose sharing it with their team.";
+  const description = () =>
+    record().isActive
+      ? t('calls.detailLiveSharing')
+      : t('calls.detailOwnerSharing');
+  const readOnlyReason = () => {
+    const name = getDisplayNameParts(tryMacroId(record().createdBy));
+    const hasResolvedName = name.firstName || name.lastName;
+    if (!hasResolvedName) return t('calls.detailSharingStarter');
+    return t('calls.detailSharingStarterNamed', { name: name.fullName });
   };
 
   return (
-    <div class="flex flex-col gap-2 text-xs">
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={isShared()}
-        aria-readonly={!canEdit()}
-        disabled={isDisabled()}
-        onClick={() => fireAndForget(handleChange(!isShared()), 'call-sharing')}
-        class={cn(
-          'inline-flex items-center gap-2 rounded-md h-7 px-2.5 text-xs select-none w-fit',
-          'border border-ink-muted/[0.08] bg-ink-muted/[0.025]',
-          'text-ink-muted/70 hover:text-ink hover:bg-ink-muted/[0.06]',
-          isShared() && 'text-ink',
-          isDisabled() && 'pointer-events-none',
-          isPending() && 'opacity-50'
-        )}
+    <div class="flex flex-col gap-2 rounded-xl bg-hover p-3 text-xs">
+      <Show
+        when={canEdit()}
+        fallback={
+          <>
+            <span class="font-medium text-ink">
+              {t('calls.detailShareWithTeam')}
+            </span>
+            <span>
+              {isShared()
+                ? t('calls.detailSharedWithTeam')
+                : t('calls.detailChannelMembersOnly')}
+            </span>
+          </>
+        }
       >
-        <InlineCheckbox checked={isShared()} />
-        <span class="whitespace-nowrap">Share with team</span>
-      </button>
-      <p class="text-ink-muted leading-5">{description()}</p>
+        <ToggleSwitch
+          label={t('calls.detailShareWithTeam')}
+          class="w-full flex-row-reverse justify-between"
+          size="xs"
+          checked={isShared()}
+          disabled={isDisabled()}
+          onChange={(checked) =>
+            fireAndForget(handleChange(checked), 'call-sharing')
+          }
+        />
+      </Show>
+      <p class="text-ink-muted leading-5">
+        {canEdit() ? description() : readOnlyReason()}
+      </p>
       <CallTeamShareChangeStatus change={{ ...change, answer }} />
     </div>
   );
@@ -226,7 +271,12 @@ function ReferencesSectionConditional(props: { callId: string }) {
     <Show when={count() > 0}>
       <SidePanel.Section
         id="references"
-        title={<SidePanel.CountTitle label="References" count={count()} />}
+        title={
+          <SidePanel.CountTitle
+            label={t('calls.detailReferences')}
+            count={count()}
+          />
+        }
         order={50}
       >
         <Suspense fallback={<SidePanel.Loading />}>
