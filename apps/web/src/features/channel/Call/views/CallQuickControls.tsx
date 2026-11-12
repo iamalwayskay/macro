@@ -16,6 +16,7 @@ import {
 } from '../CallControls/CallControlBar';
 import { CallMediaControls } from '../CallControls/CallMediaControls';
 import { CallSharingMenu } from '../CallControls/CallSharingMenu';
+import { CallTeamShareChangeStatus } from '../CallControls/CallTeamShareChangeStatus';
 import { CallReactionMenu } from '../components/CallReactionMenu';
 import type { CallReactionEmoji } from '../core/call-reactions';
 import { LK_TRACK_SOURCE } from '../livekit-loader';
@@ -227,6 +228,19 @@ function SharingControl(props: { channelName?: string }) {
         channelName={props.channelName}
         sharedWithTeam={call.isSharedWithTeam()}
         disabled={call.isConnecting() || sharing.isPending()}
+        changePending={!!sharing.change.pending()}
+        status={
+          <CallTeamShareChangeStatus
+            change={{
+              ...sharing.change,
+              answer: (approve) =>
+                fireAndForget(
+                  sharing.change.answer(approve),
+                  'call-quick-controls'
+                ),
+            }}
+          />
+        }
         onToggle={() => fireAndForget(sharing.toggle(), 'call-quick-controls')}
         onOpenChange={() => {}}
       />
