@@ -253,7 +253,7 @@ const methods: Record<string, Partial<Record<SdkVerb, string>>> = {
     `,
     checked: `
       inferDatabaseColumnType validateWebhook validateDocumentPermissionsToken
-      checkActiveCall getCallRingState getTeamAvailability
+      checkActiveCall getCallRingState getTeamShareState getTeamAvailability
     `,
     requested:
       'requestAccountManager requestChannelAccess accessRequestsSubmit',

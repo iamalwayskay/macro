@@ -211,7 +211,11 @@ export class CallRecord extends FavoritableEntity<CallRecordDetail> {
     );
   }
 
-  /** The call's team sharing and any change awaiting approval. */
+  /**
+   * The call's team sharing and any change awaiting approval.
+   *
+   * @readonly
+   */
   async teamShareState() {
     const state: CallTeamShareState = unwrap(
       await this.client.storage.getTeamShareState({
