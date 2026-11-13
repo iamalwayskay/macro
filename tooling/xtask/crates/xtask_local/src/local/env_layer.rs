@@ -216,6 +216,12 @@ pub fn resolve(
         env.extend(super::microsoft_emulator::env(instance));
     }
 
+    // A local stack with the placeholder PostHog key answers flag loads from
+    // its proxy rather than sending that key and its users' ids to PostHog.
+    if super::feature_flags::stands_in(mode, &env) {
+        env.extend(super::feature_flags::env());
+    }
+
     // Remote-AWS modes (dev): pin ENVIRONMENT/project, strip any leaked local
     // endpoints, and resolve the developer's real AWS credentials (incl. session
     // token) over the dev_personal placeholders — the process-env layer can't add

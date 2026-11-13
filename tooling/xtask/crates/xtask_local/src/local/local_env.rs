@@ -699,6 +699,11 @@ impl FusionAuthEnv {
     }
 }
 
+/// The PostHog project key a `--no-doppler` stack's services boot with. It
+/// loads no flags from PostHog; such a stack answers flag loads itself (see
+/// [`super::feature_flags`]).
+pub const POSTHOG_PLACEHOLDER_KEY: &str = "local-posthog-project-key";
+
 /// Values the services' `macro_config` loaders require but that only exist in
 /// Doppler's `lcl_personal` config. Without these a `--no-doppler` stack's
 /// containers crash at startup ("missing required value") before any of the
@@ -717,7 +722,7 @@ struct BootStubEnv;
 impl BootStubEnv {
     fn write(&self, env: &mut BTreeMap<String, String>) {
         // DSS requires a project key at boot; real flag evaluation needs Doppler.
-        env.insert("POSTHOG_API_KEY".into(), "local-posthog-project-key".into());
+        env.insert("POSTHOG_API_KEY".into(), POSTHOG_PLACEHOLDER_KEY.into());
         // The worker is opt-in and ships paused; an explicit env-file can enable it.
         env.insert("SLACK_IMPORT_ENABLED".into(), "false".into());
         env.insert("SLACK_IMPORT_CONCURRENCY".into(), "1".into());

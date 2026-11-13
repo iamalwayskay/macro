@@ -228,6 +228,9 @@ pub fn build_static(stage: &Stage, instance: &Instance, mode: Mode) -> Result<()
     let _build_lock = lock_checkout_build(stage)?;
     prepare_dependencies(stage)?;
     let mut cmd = static_build_command(mode);
+    if let Some((key, value)) = super::feature_flags::frontend_env()? {
+        cmd.env(key, value);
+    }
     if stage.is_dry_run() {
         return stage.run("Building frontend bundle", &mut cmd);
     }
@@ -327,6 +330,9 @@ fn dev_env(instance: &Instance, mode: Mode, traces_enabled: bool) -> Result<Vec<
     }
     if mode == Mode::Local {
         env.push((LOCAL_STACK_ENV.to_string(), "true".to_string()));
+    }
+    if let Some((key, value)) = super::feature_flags::frontend_env()? {
+        env.push((key.to_string(), value));
     }
     if traces_enabled {
         env.push((

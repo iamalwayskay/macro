@@ -87,7 +87,13 @@ pub fn write_caddyfile(instance: &Instance, mode: Mode, static_frontend: bool) -
         std::fs::create_dir_all(dir)
             .with_context(|| format!("creating proxy dir {}", dir.display()))?;
     }
-    std::fs::write(&path, caddyfile(instance, mode, static_frontend))
+    let mut contents = caddyfile(instance, mode, static_frontend);
+    if mode == Mode::Local {
+        contents.push_str(&super::feature_flags::caddy_site(
+            &super::feature_flags::values()?,
+        ));
+    }
+    std::fs::write(&path, contents)
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }

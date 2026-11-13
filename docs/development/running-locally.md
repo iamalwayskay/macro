@@ -371,6 +371,18 @@ A `--no-doppler` stack supplies deterministic stubs for required configuration. 
 | Stripe billing | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | Checkout and subscription endpoints fail. Signup skips Stripe and leaves profile billing unset, so free-team creation works. Only the required legacy account field stores a local placeholder. |
 | CloudFront signed URLs | `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_DISTRIBUTION_URL`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PUBLIC_KEY_ID`, `DOCUMENT_STORAGE_SERVICE_CLOUDFRONT_SIGNER_PRIVATE_KEY` | Document download URLs are unsigned (fine against local S3) |
 
+### Feature flags without PostHog
+
+A `--no-doppler` stack's services get a placeholder PostHog key. Such a stack
+answers their flag loads itself: `POSTHOG_HOST` points at an unpublished proxy
+port that serves PostHog's `/flags` response, so nothing reaches PostHog. Set
+`MACRO_LOCAL_FEATURE_FLAGS` to a JSON file of PostHog flag keys to `true` or
+`false` before starting; the same values reach the web bundle as
+`VITE_LOCAL_FEATURE_FLAGS`. Unlisted keys, and every key without the file,
+read off. A flag's env override or `default` still wins in the web app. A stack
+with a real PostHog key, and a bundle built with `VITE_POSTHOG_API_KEY`, keep
+PostHog as the source.
+
 The other stubbed keys (`REDIS_HOST`, `MACRO_DB_URL`, `INTERNAL_API_KEY`, `AUTHENTICATION_SERVICE_SECRET_KEY`, `ACCOUNT_LINK_STATE_SECRET`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`) are internal plumbing with correct local values — you never need to override them.
 
 To turn on an integration, create a `local.env` with the real values. Then pass it
