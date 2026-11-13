@@ -1,4 +1,4 @@
-//! What a run records as local telemetry (on unless the developer opted out):
+//! What a run records as local telemetry (on only when a collector is configured):
 //! the run, every step, each service build and each container's health wait.
 //! Sending, the settings file, its provisioning and the buffer are
 //! `xtask_local_telemetry`'s.
