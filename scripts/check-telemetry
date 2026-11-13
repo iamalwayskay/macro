@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Fails when the tree hard-codes an upstream tracking id or telemetry destination.
+#
+# This fork keeps every analytics/telemetry id and destination env-configurable
+# with an empty (off) default. The patterns below are the ids and hosts the fork
+# layer removed, plus the generic shapes of the same kinds of ids, so a rebase
+# onto upstream that brings one back is caught. Scans tracked files with
+# `git grep` (a few seconds).
+#
+# Usage: scripts/check-telemetry [<commit>]
+#   no argument: the working tree; with a commit (e.g. upstream/main): that tree,
+#   to preview what an update would bring back.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+patterns=(
+  # Ids and keys the fork layer removed.
+  'G-52HPEL3FTV'
+  '639142540393286'
+  'AW-11035820781'
+  'GTM-M58X7PJ8'
+  'phc_eSQcxAxPf0FAmnCTckz84305pNlMlOdDKciSKkuX0GO'
+  # The upstream analytics/OTLP proxy, on any of its hostnames.
+  'macro-prox(-prod|-dev)?\.macroverse\.workers\.dev'
+  # Generic shapes: PostHog project key, GA4, GTM, Google Ads, Datadog RUM token.
+  'phc_[A-Za-z0-9]{20,}'
+  '\bG-[A-Z0-9]{10}\b'
+  '\bGTM-[A-Z0-9]{7,8}\b'
+  '\bAW-[0-9]{9,11}\b'
+  '\bpub[a-f0-9]{32}\b'
+  # Meta Pixel with a literal numeric id.
+  "fbq\\(\\s*['\"]init['\"]\\s*,\\s*['\"]?[0-9]{10,}"
+  'facebook\.com/tr\?id=[0-9]{10,}'
+  "(meta_pixel_id|ga_measurement_id)['\"]?\\s*[:=]\\s*['\"]?(G-[A-Z0-9]+|[0-9]{10,})"
+  # The proxy's PostHog / OTLP routes on any host.
+  "https?://[^ \"'\`]+/i/(ph|otlp)\\b"
+  # An OTLP exporter setting given a literal https URL.
+  "(OTEL_EXPORTER_OTLP[A-Z_]*ENDPOINT|VITE_OTEL_EXPORTER_URL)['\"]?\\s*[:=,]\\s*['\"]?(\\\$\\{[A-Z_]+:-)?https://[^ \"'\`}]+"
+  "envOr \"VITE_OTEL_EXPORTER_URL\" \"https://[^\"]+"
+  # The upstream internal OTLP collector, outside upstream's own infrastructure.
+  'otlp\.macro-internal\.com'
+)
+
+# Matched text that is an obvious placeholder, not a real id or destination.
+allowlist='X{6,}|YOUR_[A-Z_]+|otlp\.example\.com|://localhost|://127\.0\.0\.1'
+# Upstream's own observability stack (its collectors and the analytics proxy)
+# names the internal collector; deploying that stack is the only way it is used.
+infrastructure='^([^:]+:)?(infra/|services/analytics-proxy/)[^:]*:[0-9]+:otlp\.macro-internal\.com'
+
+args=()
+[[ $# -gt 0 ]] && revision=("$1") || revision=()
+for pattern in "${patterns[@]}"; do
+  args+=(-e "$pattern")
+done
+
+hits=$(
+  git grep -nIoE "${args[@]}" "${revision[@]}" -- . \
+    ':!scripts/check-telemetry' ':!*.lock' ':!**/bun.lockb' \
+    | grep -vE ":[0-9]+:.*(${allowlist})" \
+    | grep -vE "$infrastructure"
+)
+
+if [[ -n "$hits" ]]; then
+  echo "check-telemetry: FAILED. Hard-coded tracking id or telemetry destination found:" >&2
+  echo "$hits" | sed 's/^/  /' >&2
+  echo "Make it env-configurable with an empty default (see the fork's refactor commits)," >&2
+  echo "or, for an obvious placeholder, extend the allowlist in scripts/check-telemetry." >&2
+  exit 1
+fi
+
+echo "check-telemetry: ok, no hard-coded upstream tracking ids or destinations."
