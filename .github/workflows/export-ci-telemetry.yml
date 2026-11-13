@@ -66,7 +66,7 @@ permissions:
   id-token: write
 jobs:
   export:
-    if: github.event.workflow_run.conclusion != 'skipped'
+    if: github.event.workflow_run.conclusion != 'skipped' && vars.CI_TELEMETRY_OTLP_ENDPOINT != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -902,7 +902,7 @@ jobs:
       shell: bash
       env:
         CI_TELEMETRY_EVENTS: ${{ runner.temp }}/ci-telemetry-events.json
-        OTLP_LOGS_URL: https://otlp.macro-internal.com/v1/logs
+        OTLP_LOGS_URL: ${{ vars.CI_TELEMETRY_OTLP_ENDPOINT }}/v1/logs
         OTLP_HEADERS: ${{ steps.ingest.outputs.headers }}
       timeout-minutes: 1
       continue-on-error: true
@@ -916,5 +916,5 @@ jobs:
         OTEL_SERVICE_NAME: github-actions
         OTEL_RESOURCE_ATTRIBUTES: deployment.environment=ci
         OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-        OTEL_EXPORTER_OTLP_ENDPOINT: https://otlp.macro-internal.com
+        OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.CI_TELEMETRY_OTLP_ENDPOINT }}
         OTEL_EXPORTER_OTLP_HEADERS: ${{ steps.ingest.outputs.headers }}

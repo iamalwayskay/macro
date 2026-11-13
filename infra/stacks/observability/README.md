@@ -12,7 +12,9 @@ The generated workflow observes completed workflows on its
 explicit name list using Grafana's
 [`gha-otel-export`](https://github.com/grafana/grafana-github-actions/tree/b1c422726cc4ff4adb0838ebca67586f24babb42/gha-otel-export)
 action, pinned to that reviewed commit. It reads the triggering attempt's GitHub
-metadata and sends OTLP/HTTP protobuf traces to our existing endpoint. The trace
+metadata and sends OTLP/HTTP protobuf traces to the collector named by the
+`CI_TELEMETRY_OTLP_ENDPOINT` repository variable; with the variable unset the
+workflow does not run. The trace
 hierarchy is workflow → jobs → steps, stored in Tempo with
 `service.name=github-actions` and `deployment.environment=ci`. There is no
 triggering PR checkout, artifact download, raw build-log collection, or Datadog

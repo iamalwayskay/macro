@@ -104,13 +104,14 @@ fn unobserved_workflows_exist_and_are_not_observed() {
 }
 
 /// A run whose jobs were all skipped must not start the exporter: it has nothing to
-/// export, and about half of all completions are such runs.
+/// export, and about half of all completions are such runs. Without a configured
+/// collector nothing starts either.
 #[test]
-fn skipped_runs_start_no_export() {
+fn skipped_runs_and_unconfigured_repositories_start_no_export() {
     let job = serde_json::to_value(export()).unwrap();
     assert_eq!(
         job["if"],
-        "github.event.workflow_run.conclusion != 'skipped'"
+        "github.event.workflow_run.conclusion != 'skipped' && vars.CI_TELEMETRY_OTLP_ENDPOINT != ''"
     );
 }
 

@@ -88,8 +88,12 @@ const UNOBSERVED_PR_WORKFLOWS: &[&str] = &[
 const EXPORT_TRACE: &str = "steps.preflight.outputs.export == 'true'";
 const EVENTS_FILE: &str = "${{ runner.temp }}/ci-telemetry-events.json";
 const JOBS_FILE: &str = "${{ runner.temp }}/ci-telemetry-jobs.json";
-// A run whose jobs were all skipped has no events and no trace worth a call.
-const RAN: &str = "github.event.workflow_run.conclusion != 'skipped'";
+// A run whose jobs were all skipped has no events and no trace worth a call. The
+// collector comes from the `CI_TELEMETRY_OTLP_ENDPOINT` repository variable; unset
+// (the default) means nothing is exported.
+const RAN: &str = "github.event.workflow_run.conclusion != 'skipped' && vars.CI_TELEMETRY_OTLP_ENDPOINT != ''";
+const OTLP_ENDPOINT: &str = "${{ vars.CI_TELEMETRY_OTLP_ENDPOINT }}";
+const OTLP_LOGS_URL: &str = "${{ vars.CI_TELEMETRY_OTLP_ENDPOINT }}/v1/logs";
 
 /// Build the CI telemetry observer without checking out code or downloading artifacts.
 pub fn export_ci_telemetry() -> Workflow {
@@ -180,7 +184,7 @@ fn export() -> Job {
                 .continue_on_error(true)
                 .timeout_minutes(1u32)
                 .add_env(("CI_TELEMETRY_EVENTS", EVENTS_FILE))
-                .add_env(("OTLP_LOGS_URL", "https://otlp.macro-internal.com/v1/logs"))
+                .add_env(("OTLP_LOGS_URL", OTLP_LOGS_URL))
                 .add_env(("OTLP_HEADERS", "${{ steps.ingest.outputs.headers }}")),
         )
         .add_step(
@@ -196,10 +200,7 @@ fn export() -> Job {
                 .add_env(("OTEL_SERVICE_NAME", "github-actions"))
                 .add_env(("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=ci"))
                 .add_env(("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"))
-                .add_env((
-                    "OTEL_EXPORTER_OTLP_ENDPOINT",
-                    "https://otlp.macro-internal.com",
-                ))
+                .add_env(("OTEL_EXPORTER_OTLP_ENDPOINT", OTLP_ENDPOINT))
                 .add_env((
                     "OTEL_EXPORTER_OTLP_HEADERS",
                     "${{ steps.ingest.outputs.headers }}",
