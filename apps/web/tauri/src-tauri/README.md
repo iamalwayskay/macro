@@ -637,11 +637,11 @@ Quit an existing Macro instance first, then launch the built **app bundle**:
 
 ```sh
 open -a /absolute/path/to/Macro.app --args --record-memory \
-  --otel-traces-url https://macro-prox-prod.macroverse.workers.dev/i/otlp/v1/traces
+  --otel-traces-url https://otlp.example.com/v1/traces
 ```
 
-For dev telemetry use `https://macro-prox-dev.macroverse.workers.dev/i/otlp/v1/traces`;
-for a local collector use its full HTTP `/v1/traces` URL. The endpoint is required
+Use your own collector's full HTTP `/v1/traces` URL (the example host above is
+a placeholder). The endpoint is required
 and applies to this launch only; the corresponding `/v1/logs` endpoint is derived
 from it. No collector credentials are embedded in the app. Selecting a telemetry
 endpoint does not change which backend the frontend uses.
