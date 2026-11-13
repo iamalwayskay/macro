@@ -172,3 +172,15 @@ How:
   obvious. ID-bearing rules take the next free number.
 - Keep this file short: rules and links, no journals, command lists, or runbooks.
 - Tell the user which doc you changed and how, in one line.
+
+## Fork maintenance
+
+- This repository is a fork. Its own commits form a small layer on top of
+  `upstream/main` that keeps every analytics and telemetry id or destination
+  env-configurable with an empty (off) default.
+- Update by fetching `upstream` and rebasing the fork layer onto `upstream/main`;
+  keep the layer as separate commits on top. Regenerate derived files (such as
+  `cargo x workflows`) when a rebase touches their sources.
+- `scripts/verify` must pass after every update. `scripts/check-telemetry
+  upstream/main` previews what an update would bring back.
+- Never push to `upstream` or open pull requests against it; publish to `origin`.
