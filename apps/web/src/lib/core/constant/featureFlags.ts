@@ -102,14 +102,63 @@ export const enableCarouselCreateMenu = defineFlag({
   env: 'ENABLE_CAROUSEL_CREATE_MENU',
 });
 
+function parseLocalFeatureFlags(
+  value: unknown
+): ReadonlyMap<string, boolean> | undefined {
+  if (typeof value !== 'string' || value === '') {
+    return undefined;
+  }
+
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('VITE_LOCAL_FEATURE_FLAGS must be a JSON object');
+  }
+
+  const flags = new Map<string, boolean>();
+  for (const [key, enabled] of Object.entries(parsed)) {
+    if (typeof enabled !== 'boolean') {
+      throw new Error(`VITE_LOCAL_FEATURE_FLAGS.${key} must be true or false`);
+    }
+    flags.set(key, enabled);
+  }
+  return flags;
+}
+
 /**
- * Imperative snapshot. Env/`default` override wins. Otherwise PostHog,
- * or `false` if flags have not loaded or the key is unknown.
+ * Remote flag values for a build with no PostHog project (a self-hosted
+ * stack): `VITE_LOCAL_FEATURE_FLAGS`, a JSON object of PostHog keys to `true`
+ * or `false`. Unlisted keys read off. Ignored when `VITE_POSTHOG_API_KEY` is
+ * set, so PostHog stays the source wherever it is configured.
+ */
+const LOCAL_FEATURE_FLAGS = import.meta.env.VITE_POSTHOG_API_KEY
+  ? undefined
+  : parseLocalFeatureFlags(import.meta.env.VITE_LOCAL_FEATURE_FLAGS);
+
+/**
+ * The local value of a remote flag, or `undefined` when flags come from
+ * PostHog. With a local source every key answers at once, so nothing waits
+ * for a PostHog response that will never come.
+ */
+export function localFeatureFlag(key: string): boolean | undefined {
+  if (LOCAL_FEATURE_FLAGS === undefined) {
+    return undefined;
+  }
+  return LOCAL_FEATURE_FLAGS.get(key) ?? false;
+}
+
+/**
+ * Imperative snapshot. Env/`default` override wins. Otherwise the local flag
+ * source when there is one, then PostHog, or `false` if flags have not loaded
+ * or the key is unknown.
  */
 export function isFeatureEnabled(flag: Flag): boolean {
   if ('key' in flag) {
     if (flag.override !== undefined) {
       return flag.override;
+    }
+    const local = localFeatureFlag(flag.key);
+    if (local !== undefined) {
+      return local;
     }
     return analytics.posthog.isFeatureEnabled(flag.key) ?? false;
   }

@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_POSTHOG_API_KEY: string;
   /** PostHog capture origin. Default: standard PostHog cloud. Point this at your own PostHog or a privacy proxy. */
   readonly VITE_POSTHOG_HOST?: string;
+  /** Remote flag values when `VITE_POSTHOG_API_KEY` is empty: a JSON object of PostHog flag keys to `true` or `false`. Unset leaves flags to PostHog. */
+  readonly VITE_LOCAL_FEATURE_FLAGS?: string;
   /** PostHog project UI origin (dashboard links only; no data is sent here). */
   readonly VITE_POSTHOG_UI_HOST?: string;
   /** `true` only when the PostHog host is a privacy proxy that serves the session-recorder script under an opaque name. */
