@@ -976,11 +976,13 @@ MACRO_LOCAL_TIMINGS=/tmp/run-local-timings.jsonl just run_local
 
 For the default instance, omit `--instance`.
 
-### Timings sent to Grafana (on by default)
+### Timings sent to Grafana (off by default)
 
 `run_local`, `run_dev`, `just stack up`/`update` and `cargo x build-services`
-send their timings to Loki and Tempo, as CI does, for the `Macro run_local`
-dashboard. This is on by default. To turn it off, either:
+can send their timings to Loki and Tempo, as CI does, for the `Macro run_local`
+dashboard. This is off by default: it turns on when you write the settings file
+below, or set `MACRO_LOCAL_TELEMETRY_ENDPOINT` to your OTLP ingest route so the
+first run provisions it. To turn it off again, either:
 
 ```bash
 export MACRO_LOCAL_TELEMETRY=off          # this shell, or put it in your profile
@@ -1006,7 +1008,7 @@ are); never your name, paths, env values, error text or the token. Fields and qu
 
 **Credentials.** The settings file holds the endpoint and the bearer token of
 the OTLP ingest route, which can send telemetry but not read it. When the file
-doesn't exist, the first run writes it (mode 0600) from your own `doppler login`,
+doesn't exist and `MACRO_LOCAL_TELEMETRY_ENDPOINT` is set, the first run writes it (mode 0600) from your own `doppler login`,
 reading only `LOCAL_TELEMETRY_TOKEN` from the `observability` project's `lcl`
 config. That value is never downloaded with the `local` project's secrets, so it
 never reaches a generated env file, a container or a child process's
@@ -1020,7 +1022,7 @@ provisioned file, delete its `provisioned = true` line so it is never replaced.
 You can also write the file yourself:
 
 ```toml
-endpoint = "https://otlp.macro-internal.com"
+endpoint = "https://otlp.example.com"
 token = "<OTLP ingestion token>"
 # traces = false  # only Loki
 ```

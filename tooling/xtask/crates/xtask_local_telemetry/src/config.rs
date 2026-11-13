@@ -1,9 +1,10 @@
 //! The per-user settings file, the opt-out switches, and where events wait to be
 //! sent.
 //!
-//! Telemetry is on by default. `~/.config/macro/local-telemetry.toml` holds the
-//! endpoint and the token; when it doesn't exist, the sender writes it from
-//! Doppler (see [`crate::provision`]). The file lives outside every repository and
+//! `~/.config/macro/local-telemetry.toml` holds the endpoint and the token; when
+//! it doesn't exist and `MACRO_LOCAL_TELEMETRY_ENDPOINT` names a collector, the
+//! sender writes it from Doppler (see [`crate::provision`]). With neither, nothing
+//! is recorded or sent. The file lives outside every repository and
 //! is read only by this process, so the token never reaches a commit, a generated
 //! env file, or a container's environment. `enabled = false` in it, or
 //! `MACRO_LOCAL_TELEMETRY=off`, turns telemetry off; so does `CI`. `services =
@@ -27,8 +28,10 @@ const BUFFER_DIR: &str = "macro/local-telemetry";
 const FORWARDER_DIR: &str = "forwarder";
 /// Hosts a token may be sent to over plain HTTP: a throwaway Loki on this machine.
 const LOOPBACK_HOSTS: &[&str] = &["localhost", "127.0.0.1", "[::1]"];
-/// The shared OTLP ingest route, the one CI's `export-ci-telemetry` sends to.
-pub const DEFAULT_ENDPOINT: &str = "https://otlp.macro-internal.com";
+/// The environment variable naming the OTLP ingest route a provisioned settings
+/// file points at. Unset or empty (the default) means no provisioning, so local
+/// telemetry stays off unless the user writes the settings file.
+pub const ENDPOINT_VAR: &str = "MACRO_LOCAL_TELEMETRY_ENDPOINT";
 /// The environment variable that turns telemetry off (or on, under CI).
 pub const SWITCH_VAR: &str = "MACRO_LOCAL_TELEMETRY";
 
@@ -59,7 +62,7 @@ impl Paths {
             config: config_home?.join(CONFIG_FILE),
             buffer_dir: state_home?.join(BUFFER_DIR),
             switch: Switch::from_env(),
-            provision: Some(Provision::doppler()),
+            provision: Provision::doppler(),
         })
     }
 
@@ -128,8 +131,10 @@ impl Provision {
     /// The developer's own `doppler login`, reading only the telemetry token from
     /// the `observability` project's `lcl` config. `run_local` downloads the
     /// `local` project, so this value never joins a generated env file. One short
-    /// attempt: offline, it fails in seconds on a background thread.
-    pub fn doppler() -> Self {
+    /// attempt: offline, it fails in seconds on a background thread. `None`
+    /// without a [`default_endpoint`].
+    pub fn doppler() -> Option<Self> {
+        let endpoint = default_endpoint()?;
         let args = [
             "doppler",
             "secrets",
@@ -146,11 +151,19 @@ impl Provision {
             "--timeout",
             "5s",
         ];
-        Self {
+        Some(Self {
             command: args.iter().map(OsString::from).collect(),
-            endpoint: DEFAULT_ENDPOINT.to_owned(),
-        }
+            endpoint,
+        })
     }
+}
+
+/// The collector named by [`ENDPOINT_VAR`], or `None` when it is unset or empty.
+pub fn default_endpoint() -> Option<String> {
+    std::env::var(ENDPOINT_VAR)
+        .ok()
+        .map(|endpoint| endpoint.trim().to_owned())
+        .filter(|endpoint| !endpoint.is_empty())
 }
 
 /// XDG says a relative value is invalid and must be ignored.

@@ -2,7 +2,8 @@
 
 ## What it is
 
-Local build timings, on by default, for `just run_local`, `just stack` and
+Local build timings, off by default (on with a settings file, or with
+`MACRO_LOCAL_TELEMETRY_ENDPOINT` set so one is provisioned), for `just run_local`, `just stack` and
 `cargo x build-services`: each run, step, build and service health wait becomes
 one Loki line (`service_name="local-telemetry"`) and a Tempo span,
 mirroring CI's `ci-telemetry` events. `xtask_local` decides what to record; this

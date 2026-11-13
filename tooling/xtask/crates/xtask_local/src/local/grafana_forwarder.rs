@@ -279,7 +279,8 @@ fn with_instance(existing: Option<&str>, instance: &str) -> String {
 pub(super) fn dashboard_url() -> Option<String> {
     let paths = Paths::for_user()?;
     let forwarding = Forwarding::load(&paths).ok().flatten()?;
-    (forwarding.endpoint() == xtask_local_telemetry::config::DEFAULT_ENDPOINT).then(|| {
+    let default_endpoint = xtask_local_telemetry::config::default_endpoint()?;
+    (forwarding.endpoint() == default_endpoint).then(|| {
         format!(
             "{DASHBOARD_URL}?var-machine={}",
             forwarding.machine().as_str()
