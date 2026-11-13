@@ -65,9 +65,15 @@ pub fn caddyfile_path(instance: &Instance) -> PathBuf {
     instance.artifact_dir().join("proxy/Caddyfile")
 }
 
-/// Checked-in development CA and localhost fixtures.
+/// The development CA that signs the proxy's machine certificate:
+/// `MACRO_LOCAL_CA_DIR` (holding `ca.pem` and `ca-key.pem`) when set, so a
+/// machine can trust a CA whose key never left it, otherwise the checked-in
+/// CA and localhost fixtures.
 pub fn tls_certs_dir() -> PathBuf {
-    repo_root().join("infra/local/certs")
+    match std::env::var_os("MACRO_LOCAL_CA_DIR") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => repo_root().join("infra/local/certs"),
+    }
 }
 
 /// The sidecars a stack's resolved env turns on. They are not Rust services

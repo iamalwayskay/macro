@@ -2,6 +2,8 @@
 # Issue a machine certificate without replacing the development CA.
 set -euo pipefail
 certs_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A machine-local CA, when set, replaces the checked-in one (see README.md).
+ca_dir="${MACRO_LOCAL_CA_DIR:-$certs_dir}"
 output_dir="${1:?output directory required}"
 host="${2:?hostname required}"
 if [[ ! "$host" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
@@ -14,7 +16,7 @@ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
 openssl req -new -key "$output_dir/server-key.pem" \
   -out "$output_dir/server.csr" -subj "/CN=$host"
 openssl x509 -req -in "$output_dir/server.csr" \
-  -CA "$certs_dir/ca.pem" -CAkey "$certs_dir/ca-key.pem" \
+  -CA "$ca_dir/ca.pem" -CAkey "$ca_dir/ca-key.pem" \
   -set_serial "0x$(openssl rand -hex 16)" -days 365 \
   -out "$output_dir/server-leaf.pem" \
   -extfile <(printf '%s\n' \
@@ -22,6 +24,6 @@ openssl x509 -req -in "$output_dir/server.csr" \
     'basicConstraints=critical,CA:FALSE' \
     'keyUsage=critical,digitalSignature' \
     'extendedKeyUsage=serverAuth')
-cat "$output_dir/server-leaf.pem" "$certs_dir/ca.pem" > "$output_dir/server.pem"
+cat "$output_dir/server-leaf.pem" "$ca_dir/ca.pem" > "$output_dir/server.pem"
 chmod 600 "$output_dir/server-key.pem"
 rm -f "$output_dir/server.csr" "$output_dir/server-leaf.pem"

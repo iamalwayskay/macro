@@ -15,6 +15,17 @@ removed from disk; restarting Vite does not require trusting a new CA.
 These keys are not secrets. Anyone with the repo can mint a matching cert;
 do not reuse them outside local development.
 
+## Use a CA generated on this machine
+
+`ca-key.pem` is public, so a machine that trusts `ca.pem` system-wide accepts
+certificates anyone can mint. To trust a CA whose key never leaves the machine,
+generate one outside the checkout, put `ca.pem` and `ca-key.pem` in a directory
+and set `MACRO_LOCAL_CA_DIR` to it before `just run_local` (or `issue-host.sh`).
+The proxy's leaf certificate is then signed by that CA, and `curl --cacert`,
+Vite's `NODE_EXTRA_CA_CERTS` and health probes use its `ca.pem`. Trust that
+`ca.pem` instead of the checked-in one, as below. The CA must allow the names
+in the leaf: `localhost`, `*.localhost`, the hostname, `127.0.0.1` and `::1`.
+
 ## Trust the CA (once per machine)
 
 Trust the CA on the machine running the browser:
