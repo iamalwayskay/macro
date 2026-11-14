@@ -91,8 +91,11 @@ const wsProxyOrigin = proxyOrigin?.replace(/^http/, 'ws');
 // like alice.localhost:8090 / carol.localhost:8090 gives each seeded persona an
 // isolated login session against the one backend. Separate stacks don't need
 // this: their proxies keep each stack's cookies apart on any hostname.
+// A page served from its own scheme (a native app's `tauri:`) is not on the
+// proxy's host, so it keeps the configured origin.
 function resolveProxyOrigin(configured: string | undefined) {
   if (!configured || typeof window === 'undefined') return configured;
+  if (!/^https?:$/.test(window.location.protocol)) return configured;
   try {
     const url = new URL(configured);
     url.hostname = window.location.hostname;
