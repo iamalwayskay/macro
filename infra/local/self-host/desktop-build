@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Build the Linux desktop app pointed at one self-hosted instance.
+#
+#   desktop-build bundle <origin>   the web bundle (Nix shell, in the checkout),
+#                                   talking to <origin>, e.g. https://ai-sandbox:24090
+#   desktop-build native            the native binary, in an Ubuntu 24.04
+#                                   container so it runs on an Ubuntu 24.04 desktop
+#
+# The binary lands in $ENGINE_HOME/desktop/macro with the app icon. It embeds
+# the bundle, has OTA bundle updates compiled out (--no-default-features) and
+# expects webkit2gtk-4.1, libsoup-3 and ayatana-appindicator on the desktop.
+set -euo pipefail
+
+ENGINE_HOME="${ENGINE_HOME:-$HOME/macro-instance}"
+ENGINE_CHECKOUT="${ENGINE_CHECKOUT:-$HOME/macro-work/macro}"
+# shellcheck source=/dev/null
+. "$ENGINE_HOME/engine.env"
+nix_profile=/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+if [[ -f "$nix_profile" ]]; then
+  # shellcheck source=/dev/null
+  . "$nix_profile"
+fi
+out="$ENGINE_HOME/desktop"
+image=macro-desktop-builder:ubuntu-24.04
+
+bundle() {
+  local origin="$1" flags=""
+  if [[ -n "${MACRO_LOCAL_FEATURE_FLAGS:-}" ]]; then
+    flags="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":"), sort_keys=True))' "$MACRO_LOCAL_FEATURE_FLAGS")"
+  fi
+  (cd "$ENGINE_CHECKOUT/apps/web" && nix develop --command env \
+    VITE_LOCAL_SERVERS=ALL \
+    VITE_LOCAL_BACKEND_ORIGIN="$origin" \
+    VITE_LOCAL_ONLY=true \
+    VITE_LOCAL_STACK=true \
+    VITE_AI_EDITING_WORKER_URL="$origin/ai-editing" \
+    VITE_LOCAL_FEATURE_FLAGS="$flags" \
+    NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" \
+    just build-tauri-dev)
+}
+
+native() {
+  docker build --memory 3g -t "$image" - <<'EOF'
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl file git pkg-config libssl-dev \
+    libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+    libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev \
+ && rm -rf /var/lib/apt/lists/*
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.94.0 \
+ && chmod -R a+rwX /opt/cargo /opt/rustup
+EOF
+  docker volume create macro-desktop-target >/dev/null
+  docker volume create macro-desktop-cargo >/dev/null
+  docker run --rm --volume macro-desktop-target:/target --volume macro-desktop-cargo:/cargo-home \
+    "$image" chown "$(id -u):$(id -g)" /target /cargo-home
+  docker run --rm --memory 5g --memory-swap 12g --user "$(id -u):$(id -g)" \
+    --volume "$ENGINE_CHECKOUT:/src" \
+    --volume macro-desktop-target:/target \
+    --volume macro-desktop-cargo:/cargo-home \
+    --env CARGO_TARGET_DIR=/target --env CARGO_HOME=/cargo-home \
+    --env CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" --env CARGO_PROFILE_RELEASE_DEBUG=0 \
+    --env RUSTUP_TOOLCHAIN=1.94.0 \
+    --workdir /src/apps/web/tauri/src-tauri \
+    "$image" cargo build --release -p app --no-default-features --features tauri/custom-protocol
+  mkdir -p "$out"
+  docker run --rm --volume macro-desktop-target:/target --volume "$out:/out" \
+    "$image" cp /target/release/app /out/macro
+  cp "$ENGINE_CHECKOUT/apps/web/tauri/src-tauri/icons/128x128.png" "$out/macro.png"
+  ls -l "$out"
+}
+
+case "${1:-}" in
+  bundle) bundle "${2:?usage: desktop-build bundle <origin>}" ;;
+  native) native ;;
+  *)
+    echo "usage: desktop-build bundle <origin> | native" >&2
+    exit 2
+    ;;
+esac
