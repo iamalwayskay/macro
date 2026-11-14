@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Start, stop and keep one long-lived local stack (a self-hosted instance).
+#
+#   engine start    bring the instance up over its existing volumes, then put
+#                   back the LocalStack objects saved by `backup`
+#   engine stop     save LocalStack objects, then stop the containers (data kept)
+#   engine backup   save new and changed LocalStack objects
+#   engine status   the stack's status as JSON
+#
+# Settings come from $ENGINE_HOME/engine.env (default ~/macro-instance), which
+# sets ENGINE_INSTANCE, ENGINE_PORT_BASE and the MACRO_LOCAL_* variables. The
+# start command is the only one this script uses: detached, so it never wipes;
+# an attached `just run_local`, `just stack up` or `--fresh` would.
+set -euo pipefail
+
+ENGINE_HOME="${ENGINE_HOME:-$HOME/macro-instance}"
+ENGINE_CHECKOUT="${ENGINE_CHECKOUT:-$HOME/macro-work/macro}"
+# shellcheck source=/dev/null
+. "$ENGINE_HOME/engine.env"
+: "${ENGINE_INSTANCE:?set ENGINE_INSTANCE in engine.env}"
+: "${ENGINE_PORT_BASE:?set ENGINE_PORT_BASE in engine.env}"
+
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+storage_dir="$ENGINE_HOME/storage"
+nix_profile=/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+if [[ -f "$nix_profile" ]]; then
+  # shellcheck source=/dev/null
+  . "$nix_profile"
+fi
+
+in_shell() {
+  (cd "$ENGINE_CHECKOUT" && nix develop --command "$@")
+}
+
+run_local() {
+  in_shell just run_local "$@" --instance "$ENGINE_INSTANCE"
+}
+
+# The running LocalStack container of this instance and its network.
+localstack_container() {
+  docker ps --quiet \
+    --filter "label=com.docker.compose.service=localstack" \
+    --filter "label=com.docker.compose.project=$(compose_project)" | head -n 1
+}
+
+compose_project() {
+  run_local status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])'
+}
+
+storage() {
+  local action="$1" container network image
+  container="$(localstack_container)"
+  if [[ -z "$container" ]]; then
+    echo "engine: LocalStack is not running" >&2
+    return 1
+  fi
+  network="$(docker inspect "$container" \
+    --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' | head -n 1)"
+  image="$(docker inspect "$container" --format '{{.Config.Image}}')"
+  mkdir -p "$storage_dir"
+  docker run --rm --network "$network" \
+    --volume "$storage_dir:/storage" \
+    --volume "$self_dir/storage.py:/storage.py:ro" \
+    --entrypoint /opt/code/localstack/.venv/bin/python \
+    "$image" /storage.py "$action" /storage
+}
+
+case "${1:-}" in
+  start)
+    run_local --detach --no-doppler --env-file "$ENGINE_HOME/local.env" \
+      --port-base "$ENGINE_PORT_BASE" --static-frontend --traces off --no-computers
+    storage restore
+    ;;
+  stop)
+    storage backup || echo "engine: backup skipped" >&2
+    run_local stop
+    ;;
+  backup)
+    storage backup
+    ;;
+  status)
+    run_local status --json
+    ;;
+  *)
+    echo "usage: engine start|stop|backup|status" >&2
+    exit 2
+    ;;
+esac
