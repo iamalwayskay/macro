@@ -7,9 +7,11 @@ fn machine_certificate_verifies_with_existing_ca_and_rejects_other_hosts() {
         .unwrap()
         .as_nanos();
     let dir = std::env::temp_dir().join(format!("macro-tls-{unique}"));
-    let ca = super::super::proxy::ca_pem();
+    // The checked-in CA, whatever `MACRO_LOCAL_CA_DIR` the machine sets.
+    let ca = repo_root().join("infra/local/certs/ca.pem");
     let ca_before = std::fs::read(&ca).unwrap();
     let status = Command::new("bash")
+        .env_remove("MACRO_LOCAL_CA_DIR")
         .arg(repo_root().join("infra/local/certs/issue-host.sh"))
         .arg(&dir)
         .arg("coworker-dev")
