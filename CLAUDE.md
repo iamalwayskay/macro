@@ -184,3 +184,18 @@ How:
 - `scripts/verify` must pass after every update. `scripts/check-telemetry
   upstream/main` previews what an update would bring back.
 - Never push to `upstream` or open pull requests against it; publish to `origin`.
+- Never build or run Macro (cargo, rustc, nix builds, vite or bun builds, tauri
+  builds, containers) on the workstation that holds this checkout: an on-machine
+  build froze it on 2026-11-13. Builds and the running engine go to the Haven
+  sandbox (`ssh sandbox`), which clones this fork over HTTPS; code travels by
+  push and pull.
+- The sandbox engine is the `--no-doppler` local stack, instance `home`, port
+  base 24000, checkout `~/macro-work/macro`, settings (`engine.env`,
+  `local.env`, flag file, its own CA) in `~/macro-instance`. It is not running
+  yet: the stack needs a CPU exposing SSE4.2 (Bun, at build time and in the
+  lexical and websocket services), and the sandbox guest's virtual CPU does not.
+- Start the instance only detached, after sourcing `~/macro-instance/engine.env`:
+  `just run_local --detach --no-doppler --env-file ~/macro-instance/local.env
+  --instance home --port-base 24000 --static-frontend --traces off
+  --no-computers`. An attached `run_local`, `stack up` or `--fresh` wipes its
+  data.
