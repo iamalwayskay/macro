@@ -184,6 +184,33 @@ pub fn static_dir(instance: &Instance) -> std::path::PathBuf {
 /// cookies, so it leaves this unset.
 const LOCAL_STACK_ENV: &str = "VITE_LOCAL_STACK";
 
+/// Names a static bundle built elsewhere (a self-hosted instance fetches one
+/// with `infra/local/self-host/fetch-engine`). When set, [`build_static`]
+/// stages it as is: no wasm packages, no `vite build`.
+const PREBUILT_BUNDLE_ENV: &str = "MACRO_LOCAL_STATIC_BUNDLE";
+
+fn stage_prebuilt(stage: &Stage, instance: &Instance, bundle: &Path) -> Result<()> {
+    if !bundle.join("index.html").exists() {
+        anyhow::bail!(
+            "{PREBUILT_BUNDLE_ENV}={} has no index.html",
+            bundle.display()
+        );
+    }
+    stage.note(&format!("using the prebuilt frontend bundle {}", bundle.display()));
+    if stage.is_dry_run() {
+        return Ok(());
+    }
+    stage.run_step("Staging prebuilt frontend bundle", || {
+        let staged = static_dir(instance);
+        if staged.exists() {
+            std::fs::remove_dir_all(&staged)
+                .with_context(|| format!("clearing {}", staged.display()))?;
+        }
+        instance.ensure_artifact_dir()?;
+        bundle_cache::copy_tree(bundle, &staged)
+    })
+}
+
 /// The `vite build` that [`build_static`] runs. Its env is part of the bundle
 /// cache key, so a bundle built with different settings, such as
 /// `VITE_LOCAL_STACK`, is never reused.
@@ -224,6 +251,9 @@ fn static_build_command(mode: Mode) -> Command {
 /// Bundles are cached machine-wide by everything the build reads (see
 /// [`bundle_cache`]), so an unchanged frontend is staged without rebuilding.
 pub fn build_static(stage: &Stage, instance: &Instance, mode: Mode) -> Result<()> {
+    if let Some(prebuilt) = macro_env_var::maybe_read_env(PREBUILT_BUNDLE_ENV) {
+        return stage_prebuilt(stage, instance, Path::new(&prebuilt));
+    }
     // Held through staging: `dist/` is shared until it's copied out.
     let _build_lock = lock_checkout_build(stage)?;
     prepare_dependencies(stage)?;
