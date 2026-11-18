@@ -186,14 +186,25 @@ How:
 - Never push to `upstream` or open pull requests against it; publish to `origin`.
 - Never build or run Macro (cargo, rustc, nix builds, vite or bun builds, tauri
   builds, containers) on the workstation that holds this checkout: an on-machine
-  build froze it on 2026-11-13. Builds and the running engine go to the Haven
-  sandbox (`ssh sandbox`), which clones this fork over HTTPS; code travels by
-  push and pull.
+  build froze it on 2026-11-13. Builds run on GitHub's free runners; the Haven
+  sandbox (`ssh sandbox`) runs the engine and, like the desktop, only downloads
+  what the builds produce.
+- Builds come from the fork's own workflows, set off by a push to the
+  `fork/builds` branch (fork layer on top of `fork/remove-macro-telemetry`;
+  never `main`, whose push starts upstream's publish jobs):
+  `.github/workflows/fork-desktop.yml` publishes the Linux desktop app as a
+  `fork-desktop-<sha>` prerelease, `fork-engine.yml` the engine's programs,
+  web app and repository-built images as a `fork-engine-<sha>` prerelease.
+  Both are prereleases with non-`v` tags so no upstream release workflow runs.
+- `infra/local/self-host/fetch-engine` downloads a `fork-engine-*` set into
+  `~/macro-instance/prebuilt/current`; `infra/local/self-host/engine start`
+  then uses it instead of compiling. The checkout must be at the set's commit.
+  The flag file the builds use is `infra/local/self-host/feature-flags.json`.
 - The sandbox engine is the `--no-doppler` local stack, instance `home`, port
   base 24000, checkout `~/macro-work/macro`, settings (`engine.env`,
-  `local.env`, flag file, its own CA) in `~/macro-instance`. It is not running
-  yet: the stack needs a CPU exposing SSE4.2 (Bun, at build time and in the
-  lexical and websocket services), and the sandbox guest's virtual CPU does not.
+  `local.env`, flag file, its own CA) in `~/macro-instance`. The stack needs a
+  CPU exposing SSE4.2 (Bun); the sandbox guest's CPU setting was fixed on
+  2026-11-14. Whether the engine has run on the sandbox since is not checked.
 - Start the instance only detached, after sourcing `~/macro-instance/engine.env`:
   `just run_local --detach --no-doppler --env-file ~/macro-instance/local.env
   --instance home --port-base 24000 --static-frontend --traces off
