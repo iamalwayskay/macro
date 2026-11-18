@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# Fetch the prebuilt engine (built by .github/workflows/fork-engine.yml and
+# published as a fork-engine-* prerelease) and put it where
+# infra/local/self-host/engine uses it, so `engine start` compiles nothing.
+#
+#   fetch-engine [--tag <tag>] [--dest <dir>] [--download-only]
+#   fetch-engine --from-dir <dir> [--dest <dir>]
+#
+#   --tag            release to fetch (default: the newest fork-engine-* one)
+#   --dest           where sets live (default: $ENGINE_HOME/prebuilt,
+#                    ENGINE_HOME defaulting to ~/macro-instance)
+#   --download-only  download and check the checksums, change nothing else
+#   --from-dir       install from an already-downloaded directory (CI)
+#
+# A set is $dest/<tag>/ with bin/ (the service programs and xtask_local),
+# frontend/ (the static web app) and build.json; $dest/current points at it.
+# Installing also fetches the Nix store paths the programs and the dev shell
+# need (cache.nixos.org first, the rest from the release), pins them against
+# garbage collection, and loads the Docker images built from the repository.
+# Public release downloads need no key.
+set -euo pipefail
+
+REPO="${MACRO_FORK_REPO:-iamalwayskay/macro}"
+ENGINE_HOME="${ENGINE_HOME:-$HOME/macro-instance}"
+dest="$ENGINE_HOME/prebuilt"
+tag=""
+from_dir=""
+download_only=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tag) tag="${2:?--tag needs a value}"; shift 2 ;;
+    --dest) dest="${2:?--dest needs a value}"; shift 2 ;;
+    --from-dir) from_dir="${2:?--from-dir needs a value}"; shift 2 ;;
+    --download-only) download_only=true; shift ;;
+    -h | --help) sed -n '2,21p' "$0"; exit 0 ;;
+    *) echo "fetch-engine: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+
+nix_profile=/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+if [[ -f "$nix_profile" ]]; then
+  # shellcheck source=/dev/null
+  . "$nix_profile"
+fi
+
+newest_tag() {
+  curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=50" |
+    python3 -c 'import json,sys
+tags=[r["tag_name"] for r in json.load(sys.stdin) if r["tag_name"].startswith("fork-engine-") and not r["draft"]]
+print(tags[0] if tags else "")'
+}
+
+download() {
+  local dir="$1" base="https://github.com/$REPO/releases/download/$tag" name
+  mkdir -p "$dir"
+  curl -fsSL --retry 5 -o "$dir/SHA256SUMS" "$base/SHA256SUMS"
+  while read -r _ name; do
+    if [[ -f "$dir/$name" ]] && (cd "$dir" && grep -F "  $name" SHA256SUMS | sha256sum --check --status); then
+      echo "have $name"
+      continue
+    fi
+    echo "downloading $name"
+    curl -fSL --retry 5 --progress-bar -o "$dir/$name.tmp" "$base/$name"
+    mv "$dir/$name.tmp" "$dir/$name"
+  done <"$dir/SHA256SUMS"
+  (cd "$dir" && sha256sum --check SHA256SUMS)
+}
+
+# The set's local-only Nix store paths: one archive, or split into parts.
+local_nar() {
+  local src="$1"
+  if [[ -f "$src/nix-local.nar.zst" ]]; then
+    cat "$src/nix-local.nar.zst"
+  else
+    cat "$src"/nix-local.nar.zst.part*
+  fi
+}
+
+as_trusted() {
+  if { nix store info --json 2>/dev/null || nix store ping --json 2>/dev/null; } | grep -q '"trusted": *1'; then
+    "$@"
+  else
+    sudo "$(command -v "$1")" "${@:2}"
+  fi
+}
+
+install_set() {
+  local src="$1" id="$2" set="$dest/$2"
+  mkdir -p "$set"
+  echo "fetching $(wc -l <"$src/nix-substitute.txt") store paths from cache.nixos.org"
+  xargs -a "$src/nix-substitute.txt" nix-store --realise >/dev/null
+  echo "importing $(wc -l <"$src/nix-local.txt") store paths from the release"
+  local_nar "$src" | zstd -dc | as_trusted nix-store --import >/dev/null
+  # One root keeps the dev shell's closure, which holds the programs' libraries.
+  nix-store --add-root "$set/devshell" --realise "$(cat "$src/devshell.txt")" >/dev/null
+
+  rm -rf "${set:?}/bin" "${set:?}/frontend"
+  if [[ -f "$src/engine-bin.tar.zst" ]]; then
+    zstd -dc "$src/engine-bin.tar.zst" | tar -C "$set" -xf -
+  else
+    cp -a "$src/bin" "$set/bin"
+  fi
+  chmod +x "$set"/bin/*
+  mkdir -p "$set/frontend"
+  zstd -dc "$src/frontend.tar.zst" | tar -C "$set/frontend" -xf -
+  test -f "$set/frontend/index.html"
+
+  local image file
+  touch "$src/images.txt"
+  while read -r image; do
+    [[ -n "$image" ]] || continue
+    file="$src/image-$(printf '%s' "$image" | tr '/:' '__').tar.zst"
+    echo "loading $image"
+    zstd -dc "$file" | docker load >/dev/null
+  done <"$src/images.txt"
+
+  for file in services.txt images.txt build.json; do
+    if [[ -f "$src/$file" ]]; then cp "$src/$file" "$set/"; fi
+  done
+  ln -sfn "$id" "$dest/current"
+  echo "installed $set; $dest/current points at it"
+}
+
+if [[ -n "$from_dir" ]]; then
+  install_set "$from_dir" "local-$(date +%Y%m%d%H%M%S)"
+  exit 0
+fi
+
+if [[ -z "$tag" ]]; then
+  tag="$(newest_tag)"
+  [[ -n "$tag" ]] || { echo "fetch-engine: no fork-engine-* release on $REPO" >&2; exit 1; }
+fi
+echo "release $tag"
+downloads="$dest/downloads/$tag"
+download "$downloads"
+if $download_only; then
+  echo "downloaded and checked $downloads"
+  exit 0
+fi
+install_set "$downloads" "$tag"

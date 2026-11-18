@@ -32,8 +32,39 @@ in_shell() {
   (cd "$ENGINE_CHECKOUT" && nix develop --command "$@")
 }
 
+# A set from fetch-engine: prebuilt service programs, start tool and web app,
+# so nothing is compiled here. Without one, `just run_local` builds them.
+prebuilt="$ENGINE_HOME/prebuilt/current"
+
 run_local() {
-  in_shell just run_local "$@" --instance "$ENGINE_INSTANCE"
+  if [[ -x "$prebuilt/bin/xtask_local" ]]; then
+    MACRO_LOCAL_STATIC_BUNDLE="$prebuilt/frontend" \
+      in_shell "$prebuilt/bin/xtask_local" run-local "$@" --instance "$ENGINE_INSTANCE"
+  else
+    in_shell just run_local "$@" --instance "$ENGINE_INSTANCE"
+  fi
+}
+
+# The binaries dir flag, when a prebuilt set is installed.
+binaries_args() {
+  if [[ -x "$prebuilt/bin/xtask_local" ]]; then
+    echo "--binaries-dir"
+    echo "$prebuilt/bin"
+  fi
+}
+
+# The set only matches the checkout it was built from (compose image tags and
+# the web app are keyed on the repository's content).
+check_prebuilt_commit() {
+  [[ -f "$prebuilt/build.json" ]] || return 0
+  local built head
+  built="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$prebuilt/build.json")"
+  head="$(git -C "$ENGINE_CHECKOUT" rev-parse HEAD)"
+  if [[ "$built" != "$head" ]]; then
+    echo "engine: the prebuilt set is from $built but the checkout is at $head;" >&2
+    echo "engine: check out $built or run fetch-engine for a newer set" >&2
+    return 1
+  fi
 }
 
 # The running LocalStack container of this instance and its network.
@@ -67,8 +98,11 @@ storage() {
 
 case "${1:-}" in
   start)
+    check_prebuilt_commit
+    mapfile -t prebuilt_args < <(binaries_args)
     run_local --detach --no-doppler --env-file "$ENGINE_HOME/local.env" \
-      --port-base "$ENGINE_PORT_BASE" --static-frontend --traces off --no-computers
+      --port-base "$ENGINE_PORT_BASE" --static-frontend --traces off --no-computers \
+      "${prebuilt_args[@]}"
     storage restore
     ;;
   stop)
