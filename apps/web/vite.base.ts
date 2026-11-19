@@ -786,6 +786,24 @@ function getAssetsPath(mode: string, command: string): string {
   }
 }
 
+/**
+ * The origin index.html preconnects to. A bundle built for a local or
+ * self-hosted backend talks only to that backend, so it must not open a
+ * connection to Macro's gateway either.
+ */
+export function preconnectOrigin(
+  mode: string,
+  localBackendOrigin: string | undefined
+): string {
+  if (localBackendOrigin === 'same-origin') return '/';
+  if (localBackendOrigin && /^https?:\/\//.test(localBackendOrigin)) {
+    return new URL(localBackendOrigin).origin;
+  }
+  return mode === 'development'
+    ? 'https://dev-gateway.macro.com'
+    : 'https://gateway.macro.com';
+}
+
 function defineEnv(mode: string, command: string) {
   // `vite build` compiles DEV from NODE_ENV, not MODE. Local-backend static
   // bundles already set VITE_LOCAL_BACKEND_ORIGIN (stack up);
@@ -802,9 +820,7 @@ function defineEnv(mode: string, command: string) {
     'import.meta.env.ASSETS_PATH': JSON.stringify(getAssetsPath(mode, command)),
     // index.html preconnects to the API gateway; keep in sync with servers.ts.
     'import.meta.env.GATEWAY_ORIGIN': JSON.stringify(
-      mode === 'development'
-        ? 'https://dev-gateway.macro.com'
-        : 'https://gateway.macro.com'
+      preconnectOrigin(mode, process.env.VITE_LOCAL_BACKEND_ORIGIN)
     ),
     'import.meta.env.__LOCAL_DOCKER__': process.env.LOCAL_DOCKER === 'true',
     'import.meta.env.__LOCAL_JWT__': JSON.stringify(process.env.LOCAL_JWT),
