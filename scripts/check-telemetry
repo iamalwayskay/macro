@@ -70,4 +70,16 @@ if [[ -n "$hits" ]]; then
   exit 1
 fi
 
-echo "check-telemetry: ok, no hard-coded upstream tracking ids or destinations."
+# Off switches the fork adds and an update must keep: file, then the exact text.
+required=(
+  # The local stack's Wrangler containers report usage to Cloudflare by default.
+  'tooling/xtask/crates/xtask_local/src/local/local_env.rs|"WRANGLER_SEND_METRICS".into(), "false".into()'
+)
+for entry in "${required[@]}"; do
+  if ! git grep -qF "${entry#*|}" "${revision[@]}" -- "${entry%%|*}"; then
+    echo "check-telemetry: FAILED. ${entry%%|*} no longer contains: ${entry#*|}" >&2
+    exit 1
+  fi
+done
+
+echo "check-telemetry: ok, no hard-coded upstream tracking ids or destinations; off switches present."

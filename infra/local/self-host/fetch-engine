@@ -87,13 +87,16 @@ download() {
   fi
 }
 
-# The set's local-only Nix store paths: one archive, or split into parts.
-local_nar() {
-  local src="$1"
-  if [[ -f "$src/nix-local.nar.zst" ]]; then
-    cat "$src/nix-local.nar.zst"
+# A release file, whole or split into <name>.partNN (assets are capped at 2 GiB).
+read_asset() {
+  local src="$1" name="$2"
+  if [[ -f "$src/$name" ]]; then
+    cat "$src/$name"
+  elif compgen -G "$src/$name.part*" >/dev/null; then
+    cat "$src/$name".part*
   else
-    cat "$src"/nix-local.nar.zst.part*
+    echo "fetch-engine: $name is not in $src" >&2
+    return 1
   fi
 }
 
@@ -111,7 +114,7 @@ install_set() {
   echo "fetching $(wc -l <"$src/nix-substitute.txt") store paths from cache.nixos.org"
   xargs -a "$src/nix-substitute.txt" nix-store --realise >/dev/null
   echo "importing $(wc -l <"$src/nix-local.txt") store paths from the release"
-  local_nar "$src" | zstd -dc | as_trusted nix-store --import >/dev/null
+  read_asset "$src" nix-local.nar.zst | zstd -dc | as_trusted nix-store --import >/dev/null
   # One root keeps the dev shell's closure, which holds the programs' libraries.
   nix-store --add-root "$set/devshell" --realise "$(cat "$src/devshell.txt")" >/dev/null
 
@@ -130,9 +133,9 @@ install_set() {
   touch "$src/images.txt"
   while read -r image; do
     [[ -n "$image" ]] || continue
-    file="$src/image-$(printf '%s' "$image" | tr '/:' '__').tar.zst"
+    file="image-$(printf '%s' "$image" | tr '/:' '__').tar.zst"
     echo "loading $image"
-    zstd -dc "$file" | docker load >/dev/null
+    read_asset "$src" "$file" | zstd -dc | docker load >/dev/null
   done <"$src/images.txt"
 
   for file in services.txt images.txt build.json; do

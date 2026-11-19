@@ -141,6 +141,9 @@ impl LocalEnv {
         );
         env.insert("COMPOSE_PROJECT_NAME".into(), self.project_name.clone());
         env.insert("PORT".into(), "8080".into());
+        // Fork: the stack's Wrangler containers (sync, AI editing, analytics
+        // relay) otherwise report their usage to Cloudflare.
+        env.insert("WRANGLER_SEND_METRICS".into(), "false".into());
         env.insert("FRONTEND_PORT".into(), self.frontend_port.to_string());
         env.insert("FRONTEND_ORIGIN".into(), self.frontend_origin.clone());
         env.insert("APP_BASE_URL".into(), self.frontend_origin.clone());

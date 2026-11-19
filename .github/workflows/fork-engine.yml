@@ -224,14 +224,15 @@ jobs:
       run: |
         set -euo pipefail
         cur="$HOME/macro-instance/prebuilt/current"
-        nix develop --command "$cur/bin/xtask_local" run-local status --json --instance "$INSTANCE" | tee "$RUNNER_TEMP/status.json"
+        nix develop --command "$cur/bin/xtask_local" run-local status --json --instance "$INSTANCE" | tail -n 1 | tee "$RUNNER_TEMP/status.json"
         project="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["project"])' "$RUNNER_TEMP/status.json")"
         docker ps -a --filter "label=com.docker.compose.project=$project" \
           --format '{{.Label "com.docker.compose.service"}} {{.Image}} {{.Status}}' | sort | tee "$RUNNER_TEMP/services.txt"
         runtime="$(docker images macro-local-runtime --format '{{.Repository}}:{{.Tag}}' | head -n 1)"
         infra/local/self-host/check-engine-libs container "$cur/bin" "$runtime"
-        # analytics_proxy is upstream's PostHog/OTLP relay; it gets no key here
-        # and does not start (its bundle cannot resolve hono), so it is left out.
+        # analytics_proxy is upstream's analytics relay; the web app is built
+        # without an analytics key and never calls it, and it does not start
+        # (its bundle cannot resolve hono), so it is left out.
         if grep -v ' Up ' "$RUNNER_TEMP/services.txt" | grep -v '^analytics_proxy ' | grep -E 'Exited \([1-9]|Restarting|Dead'; then
           echo "some containers are not up" >&2
           exit 1
@@ -304,10 +305,12 @@ jobs:
         tar -C dl -cf - bin | zstd -T0 -10 -o out/engine-bin.tar.zst
         cp dl/frontend.tar.zst dl/nix-substitute.txt dl/nix-local.txt dl/devshell.txt \
           dl/images.txt dl/services.txt dl/status.json out/
-        cp dl/image-*.tar.zst out/ 2>/dev/null || true
-        # Release assets are capped at 2 GiB each.
-        for f in dl/nix-local.nar.zst; do
-          split -b 1900M -d -a 2 "$f" "out/$(basename "$f").part"
+        cp dl/image-*.tar.zst dl/nix-local.nar.zst out/ 2>/dev/null || true
+        # Release assets are capped at 2 GiB each: split anything bigger into
+        # <name>.partNN, which fetch-engine joins back.
+        find out -maxdepth 1 -type f -size +1900M | while read -r f; do
+          split -b 1900M -d -a 2 "$f" "$f.part"
+          rm "$f"
         done
         printf '{"commit":"%s","run":"%s"}\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" >out/build.json
         (cd out && sha256sum -- * >SHA256SUMS)
