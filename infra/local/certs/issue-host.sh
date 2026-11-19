@@ -10,6 +10,14 @@ if [[ ! "$host" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
   echo "Invalid development hostname: $host" >&2
   exit 1
 fi
+# The wildcard covers persona hosts such as alice.localhost in a browser. A
+# machine-local CA carries name constraints, and rustls (the desktop app's
+# HTTP client) then rejects the whole chain over a wildcard with fewer than
+# three labels, so a leaf for such a CA leaves it out.
+names="DNS:localhost,DNS:*.localhost,DNS:$host,IP:127.0.0.1,IP:::1"
+if [[ -n "${MACRO_LOCAL_CA_DIR:-}" ]]; then
+  names="DNS:localhost,DNS:$host,IP:127.0.0.1,IP:::1"
+fi
 mkdir -p "$output_dir"
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
   -out "$output_dir/server-key.pem"
@@ -20,7 +28,7 @@ openssl x509 -req -in "$output_dir/server.csr" \
   -set_serial "0x$(openssl rand -hex 16)" -days 365 \
   -out "$output_dir/server-leaf.pem" \
   -extfile <(printf '%s\n' \
-    "subjectAltName=DNS:localhost,DNS:*.localhost,DNS:$host,IP:127.0.0.1,IP:::1" \
+    "subjectAltName=$names" \
     'basicConstraints=critical,CA:FALSE' \
     'keyUsage=critical,digitalSignature' \
     'extendedKeyUsage=serverAuth')

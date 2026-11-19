@@ -24,7 +24,9 @@ and set `MACRO_LOCAL_CA_DIR` to it before `just run_local` (or `issue-host.sh`).
 The proxy's leaf certificate is then signed by that CA, and `curl --cacert`,
 Vite's `NODE_EXTRA_CA_CERTS` and health probes use its `ca.pem`. Trust that
 `ca.pem` instead of the checked-in one, as below. The CA must allow the names
-in the leaf: `localhost`, `*.localhost`, the hostname, `127.0.0.1` and `::1`.
+in the leaf: `localhost`, the hostname, `127.0.0.1` and `::1`. Such a leaf has
+no `*.localhost`: with a name-constrained CA, rustls (the desktop app) rejects
+the chain over it.
 
 ## Trust the CA (once per machine)
 
