@@ -1,0 +1,8 @@
+# Forwards connections on port 24090 (macro-origin.socket) to the proxy.
+[Unit]
+Description=Forward port 24090 to the Macro proxy
+Requires=macro-origin.socket
+After=macro-origin.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:24009

@@ -1,0 +1,13 @@
+# Serves the instance's web origin on port 24090 as well as on its proxy port
+# (24009 for port base 24000): the desktop app built by .github/workflows
+# fork-desktop.yml talks to https://ai-sandbox:24090.
+#   systemctl --user enable ~/macro-work/macro/infra/local/self-host/macro-origin.service
+#   systemctl --user enable --now ~/macro-work/macro/infra/local/self-host/macro-origin.socket
+[Unit]
+Description=Macro web origin on port 24090
+
+[Socket]
+ListenStream=24090
+
+[Install]
+WantedBy=sockets.target
