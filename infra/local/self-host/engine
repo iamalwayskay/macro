@@ -75,6 +75,11 @@ case "${1:-}" in
     # A resumed start replaces the frontend directory under a proxy that is
     # already running, which then serves an empty mount (404 on /app/).
     docker restart "$(service_container proxy)" >/dev/null
+    # Compose starts the containers with no restart policy, so a service that
+    # crashes stays down. on-failure brings it back; the boot start stays this
+    # script's job (on-failure does not start containers when Docker starts).
+    docker ps --quiet --filter "label=com.docker.compose.project=$(compose_project)" |
+      xargs --no-run-if-empty docker update --restart on-failure >/dev/null
     storage restore
     ;;
   stop)
