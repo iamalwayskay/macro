@@ -38,10 +38,10 @@ run_local() {
   in_shell just run_local "$@" --instance "$ENGINE_INSTANCE"
 }
 
-# The running LocalStack container of this instance and its network.
-localstack_container() {
+# The running container of one compose service of this instance.
+service_container() {
   docker ps --quiet \
-    --filter "label=com.docker.compose.service=localstack" \
+    --filter "label=com.docker.compose.service=$1" \
     --filter "label=com.docker.compose.project=$(compose_project)" | head -n 1
 }
 
@@ -51,7 +51,7 @@ compose_project() {
 
 storage() {
   local action="$1" container network image
-  container="$(localstack_container)"
+  container="$(service_container localstack)"
   if [[ -z "$container" ]]; then
     echo "engine: LocalStack is not running" >&2
     return 1
@@ -72,6 +72,9 @@ case "${1:-}" in
     shift
     run_local --detach --no-doppler --env-file "$ENGINE_HOME/local.env" \
       --port-base "$ENGINE_PORT_BASE" --static-frontend --traces off --no-computers "$@"
+    # A resumed start replaces the frontend directory under a proxy that is
+    # already running, which then serves an empty mount (404 on /app/).
+    docker restart "$(service_container proxy)" >/dev/null
     storage restore
     ;;
   stop)
