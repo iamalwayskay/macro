@@ -187,12 +187,15 @@ jobs:
         set -euo pipefail
         infra/local/self-host/fetch-engine --from-dir "$PWD/dl" --dest "$HOME/macro-instance/prebuilt"
         ls -l "$HOME/macro-instance/prebuilt" "$HOME/macro-instance/prebuilt/current/bin"
-    - name: Run a shipped program on the imported store paths
-      run: |
-        set -euo pipefail
-        bin="$HOME/macro-instance/prebuilt/current/bin"
-        echo "missing libraries: $(for f in "$bin"/*; do ldd "$f"; done | grep -c 'not found' || true)"
-        "$bin/xtask_local" --help | head -n 5
+    - name: Show how each program finds its libraries
+      # The services run in the runtime image (docker/Dockerfile.runtime:
+      # Debian, /nix/store and the bin dir mounted read-only per
+      # build/binaries_dir.rs compose_mounts, no LD_LIBRARY_PATH). xtask_local
+      # runs on the host inside `nix develop` (engine's in_shell), whose
+      # LD_LIBRARY_PATH carries the dev shell's libraries. Each program is
+      # resolved by its own loader in that environment; Ubuntu's ldd uses
+      # Ubuntu's loader and search path, which hides misses.
+      run: infra/local/self-host/check-engine-libs host "$HOME/macro-instance/prebuilt/current/bin"
     - name: Start the stack (detached, like infra/local/self-host/engine)
       run: |
         set -euo pipefail
@@ -214,6 +217,12 @@ jobs:
         project="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["project"])' "$RUNNER_TEMP/status.json")"
         docker ps -a --filter "label=com.docker.compose.project=$project" \
           --format '{{.Label "com.docker.compose.service"}} {{.Image}} {{.Status}}' | sort | tee "$RUNNER_TEMP/services.txt"
+        runtime="$(docker images macro-local-runtime --format '{{.Repository}}:{{.Tag}}' | head -n 1)"
+        infra/local/self-host/check-engine-libs container "$cur/bin" "$runtime"
+        if grep -v ' Up ' "$RUNNER_TEMP/services.txt" | grep -E 'Exited \([1-9]|Restarting|Dead'; then
+          echo "some containers are not up" >&2
+          exit 1
+        fi
         mkdir -p pkg
         cp "$RUNNER_TEMP/services.txt" pkg/services.txt
         cp "$RUNNER_TEMP/status.json" pkg/status.json
@@ -235,6 +244,16 @@ jobs:
           docker save "$image" | zstd -T0 -10 -o "pkg/image-$name.tar.zst"
         done <pkg/images.txt
         du -sh pkg/*
+    - name: Show why the stack failed
+      if: failure()
+      run: |
+        docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}' || true
+        for c in $(docker ps -a --filter status=exited --filter status=restarting --filter status=dead --format '{{.Names}}'); do
+          echo "== $c"
+          docker logs --tail 50 "$c" 2>&1 || true
+        done
+        free -m || true
+        df -h / /nix || true
     - name: Stop the stack
       if: always()
       run: |
@@ -287,3 +306,56 @@ jobs:
           --title "Engine programs $tag" \
           --notes "Prebuilt local stack (run_local --no-doppler --static-frontend --no-computers) for a self-hosted instance. Fetch with infra/local/self-host/fetch-engine. Built from $GITHUB_SHA by run $GITHUB_RUN_ID." \
           out/*
+
+  fetch:
+    name: Fetch the published set on a fresh runner and check it
+    # Exercises fetch-engine on the real release (no key, plain HTTPS) and the
+    # library check on what it installs; the stack job used --from-dir.
+    needs: [publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: false
+    - name: Free disk space
+      run: infra/local/self-host/ci-runner-setup disk
+    - name: Install Nix
+      run: infra/local/self-host/ci-runner-setup nix
+    - name: List the release files
+      run: |
+        set -euo pipefail
+        tag="fork-engine-${GITHUB_SHA::10}"
+        curl -fsSL "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag" |
+          python3 -c 'import json,sys
+        for a in json.load(sys.stdin)["assets"]: print("%12d %s" % (a["size"], a["name"]))'
+    - name: Fetch and install it
+      env:
+        MACRO_FORK_REPO: ${{ github.repository }}
+      run: infra/local/self-host/fetch-engine --tag "fork-engine-${GITHUB_SHA::10}"
+    - name: Every service the stack starts has its program
+      # The list run_local builds: non-opt-in entries of inventory.rs
+      # (local_binaries()), plus the start tool.
+      run: |
+        set -euo pipefail
+        cur="$HOME/macro-instance/prebuilt/current"
+        python3 - tooling/xtask/crates/xtask_local/src/local/inventory.rs "$cur/bin" <<'PY'
+        import os, re, sys
+        src = open(sys.argv[1]).read()
+        want = set()
+        for block in re.findall(r"RustService \{(.*?)\n    \}", src, re.S):
+            name = re.search(r'cargo_bin: "([^"]+)"', block)
+            optin = re.search(r"opt_in: (true|false)", block)
+            if name and optin and optin.group(1) == "false":
+                want.add(name.group(1))
+        want.add("xtask_local")
+        have = set(os.listdir(sys.argv[2]))
+        print("expected:", len(want), "shipped:", len(have))
+        for b in sorted(want | have):
+            print(("ok      " if b in want and b in have else "MISSING " if b in want else "extra   ") + b)
+        sys.exit(1 if want - have else 0)
+        PY
+        test -f "$cur/frontend/index.html" && du -sh "$cur/frontend"
+    - name: Show how each program finds its libraries
+      run: infra/local/self-host/check-engine-libs host "$HOME/macro-instance/prebuilt/current/bin"

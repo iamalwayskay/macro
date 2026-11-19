@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Show, for each program in a prebuilt engine set, its loader, RUNPATH and
+# needed libraries, and resolve them with the program's own loader in the
+# environment the stack runs it in. Fails if any library is not found.
+#
+#   check-engine-libs host <bin-dir>
+#       xtask_local inside `nix develop` (as infra/local/self-host/engine
+#       runs it); the services with an empty environment, as in the runtime
+#       container.
+#   check-engine-libs container <bin-dir> <runtime-image>
+#       every service inside the runtime image, mounted the way the
+#       generated compose file mounts it (bin dir at /app/out, /nix/store).
+#
+# Run from the checkout (host mode enters its dev shell).
+set -euo pipefail
+
+mode="${1:?mode: host or container}"
+bin="${2:?bin dir}"
+image="${3:-}"
+
+interp_of() {
+  readelf -l "$1" | sed -n 's/.*Requesting program interpreter: \(.*\)]$/\1/p'
+}
+
+# The stack is always started inside the dev shell, which also realises the
+# store paths it names; do the same once so host mode sees that store.
+if [[ "$mode" == host ]]; then
+  nix develop --command true
+fi
+
+fail=0
+report() {
+  local name="$1" out="$2" status="$3"
+  echo "  resolved:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  if [[ "$status" -ne 0 ]] || grep -q 'not found' <<<"$out"; then
+    echo "  RESULT $name: MISSING (exit $status)"
+    fail=1
+  else
+    echo "  RESULT $name: ok"
+  fi
+}
+
+for f in "$bin"/*; do
+  name="$(basename "$f")"
+  interp="$(interp_of "$f")"
+  echo "== $name"
+  echo "  interpreter: ${interp:-none}"
+  echo "  runpath: $(readelf -d "$f" | sed -n 's/.*(\(RUNPATH\|RPATH\)).*\[\(.*\)\]$/\1 \2/p' | tr '\n' ' ')"
+  echo "  needed: $(readelf -d "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]$/\1/p' | tr '\n' ' ')"
+  [[ -n "$interp" ]] || { echo "  RESULT $name: static"; continue; }
+  status=0
+  case "$mode" in
+    host)
+      if [[ "$name" == xtask_local ]]; then
+        echo "  environment: host, nix develop"
+        out="$(nix develop --command "$interp" --list "$f" 2>&1)" || status=$?
+      else
+        echo "  environment: empty (as in the runtime container)"
+        out="$(env -i "$interp" --list "$f" 2>&1)" || status=$?
+      fi
+      ;;
+    container)
+      [[ "$name" == xtask_local ]] && { echo "  (runs on the host, checked in host mode)"; continue; }
+      [[ -n "$image" ]] || { echo "check-engine-libs: container mode needs an image" >&2; exit 2; }
+      echo "  environment: $image"
+      out="$(docker run --rm --entrypoint "$interp" \
+        -v "$(readlink -f "$bin"):/app/out:ro" -v /nix/store:/nix/store:ro \
+        "$image" --list "/app/out/$name" 2>&1)" || status=$?
+      ;;
+    *) echo "check-engine-libs: unknown mode $mode" >&2; exit 2 ;;
+  esac
+  report "$name" "$out" "$status"
+done
+
+if [[ "$fail" -ne 0 ]]; then
+  echo "check-engine-libs: a program has a library its loader cannot find" >&2
+  exit 1
+fi
+echo "check-engine-libs: every program resolves all its libraries ($mode)"

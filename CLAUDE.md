@@ -200,6 +200,11 @@ How:
   `~/macro-instance/prebuilt/current`; `infra/local/self-host/engine start`
   then uses it instead of compiling. The checkout must be at the set's commit.
   The flag file the builds use is `infra/local/self-host/feature-flags.json`.
+  `infra/local/self-host/check-engine-libs` resolves each shipped program's
+  libraries the way the stack runs it (services in the runtime container,
+  `xtask_local` inside `nix develop`); `fork-engine.yml` runs it before and
+  after starting the stack and again on a fresh runner that fetches the
+  published set.
 - The sandbox engine is the `--no-doppler` local stack, instance `home`, port
   base 24000, checkout `~/macro-work/macro`, settings (`engine.env`,
   `local.env`, flag file, its own CA) in `~/macro-instance`. The stack needs a

@@ -12,6 +12,7 @@ name: Fork desktop app
     - .github/workflows/fork-engine.yml
     - infra/local/self-host/engine
     - infra/local/self-host/fetch-engine
+    - infra/local/self-host/check-engine-libs
     - tooling/**
 permissions:
   contents: read
