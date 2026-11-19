@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Start, stop and keep one long-lived local stack (a self-hosted instance).
 #
-#   engine start    bring the instance up over its existing volumes, then put
-#                   back the LocalStack objects saved by `backup`
+#   engine start [run_local flags]
+#                   bring the instance up over its existing volumes, then put
+#                   back the LocalStack objects saved by `backup` (extra flags,
+#                   such as --no-build, go to `just run_local`)
 #   engine stop     save LocalStack objects, then stop the containers (data kept)
 #   engine backup   save new and changed LocalStack objects
 #   engine status   the stack's status as JSON
@@ -67,8 +69,9 @@ storage() {
 
 case "${1:-}" in
   start)
+    shift
     run_local --detach --no-doppler --env-file "$ENGINE_HOME/local.env" \
-      --port-base "$ENGINE_PORT_BASE" --static-frontend --traces off --no-computers
+      --port-base "$ENGINE_PORT_BASE" --static-frontend --traces off --no-computers "$@"
     storage restore
     ;;
   stop)

@@ -1,0 +1,9 @@
+# Saves new and changed LocalStack objects; run by macro-engine-backup.timer.
+[Unit]
+Description=Save the Macro engine's LocalStack objects
+After=macro-engine.service
+Requisite=macro-engine.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/macro-work/macro/infra/local/self-host/engine backup

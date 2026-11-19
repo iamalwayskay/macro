@@ -1,0 +1,13 @@
+# Saves uploaded files every five minutes, so a crash or power cut loses at
+# most that much:
+#   systemctl --user enable --now ~/macro-work/macro/infra/local/self-host/macro-engine-backup.timer
+# (enable macro-engine-backup.service the same way first, so the timer finds it)
+[Unit]
+Description=Save the Macro engine's LocalStack objects every five minutes
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

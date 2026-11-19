@@ -1,0 +1,20 @@
+# Starts the self-hosted instance when the sandbox boots and saves its
+# LocalStack objects when it shuts down. A user unit of the account that owns
+# ~/macro-instance (lingering on, so it runs without a login):
+#   systemctl --user enable --now ~/macro-work/macro/infra/local/self-host/macro-engine.service
+# It starts on the binaries already built (--no-build); after pulling new code,
+# run `engine start` once by hand so the services are rebuilt.
+[Unit]
+Description=Macro self-hosted engine (instance in ~/macro-instance)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sh -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
+ExecStart=%h/macro-work/macro/infra/local/self-host/engine start --no-build
+ExecStop=%h/macro-work/macro/infra/local/self-host/engine backup
+TimeoutStartSec=3h
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=default.target
