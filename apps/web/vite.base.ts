@@ -795,7 +795,9 @@ export function preconnectOrigin(
   mode: string,
   localBackendOrigin: string | undefined
 ): string {
-  if (localBackendOrigin === 'same-origin') return '/';
+  // The page is already connected to its own origin. A relative href would be
+  // read as an asset by Vite's HTML build, so point at nothing instead.
+  if (localBackendOrigin === 'same-origin') return 'about:blank';
   if (localBackendOrigin && /^https?:\/\//.test(localBackendOrigin)) {
     return new URL(localBackendOrigin).origin;
   }
