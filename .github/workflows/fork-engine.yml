@@ -81,14 +81,25 @@ jobs:
         for b in "${bins[@]}"; do cp "target/debug/$b" pkg/bin/; done
         cp target/xtask/debug/xtask_local pkg/bin/
         strip pkg/bin/*
-        ls -l pkg/bin
-        # Every /nix/store path the programs load from, then their closures
-        # together with the dev shell's.
+        # The dev shell's linker gives the programs a RUNPATH of only the
+        # shell's $out/lib (a runner path); libssl and the like come from its
+        # LD_LIBRARY_PATH, which the runtime container does not have. Point
+        # each RUNPATH at the store dirs its own loader resolves in the shell.
+        patchelf="$(nix build --inputs-from . nixpkgs#patchelf --no-link --print-out-paths)/bin/patchelf"
         for f in pkg/bin/*; do
-          ldd "$f" | grep -o '/nix/store/[^/ ]*'
+          interp="$(readelf -l "$f" | sed -n 's/.*Requesting program interpreter: \(.*\)]$/\1/p')"
+          rpath="$(nix develop --command "$interp" --list "$f" | sed -n 's|.*=> \(/nix/store/[^ ]*\) (.*|\1|p' | xargs -r -n1 dirname | sort -u | paste -sd: -)"
+          "$patchelf" --set-rpath "$rpath" "$f"
+          echo "$(basename "$f"): RUNPATH $rpath"
+        done
+        ls -l pkg/bin
+        infra/local/self-host/check-engine-libs host pkg/bin
+        # Every /nix/store path the programs load from (loader and RUNPATH),
+        # then their closures together with the dev shell's.
+        for f in pkg/bin/*; do
           readelf -l "$f" | grep -o '/nix/store/[^/ ]*'
+          readelf -d "$f" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]$/\1/p' | tr ':' '\n' | grep -o '/nix/store/[^/ ]*' || true
         done | sort -u >"$RUNNER_TEMP/roots"
-        echo "missing libraries: $(for f in pkg/bin/*; do ldd "$f"; done | grep -c 'not found' || true)"
         nix-store -qR $(cat "$RUNNER_TEMP/roots") "$(readlink -f "$RUNNER_TEMP/devshell")" | sort -u >"$RUNNER_TEMP/closure"
         wc -l <"$RUNNER_TEMP/closure"
         # Paths cache.nixos.org serves are fetched from there; only the rest

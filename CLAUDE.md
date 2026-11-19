@@ -202,9 +202,11 @@ How:
   The flag file the builds use is `infra/local/self-host/feature-flags.json`.
   `infra/local/self-host/check-engine-libs` resolves each shipped program's
   libraries the way the stack runs it (services in the runtime container,
-  `xtask_local` inside `nix develop`); `fork-engine.yml` runs it before and
-  after starting the stack and again on a fresh runner that fetches the
-  published set.
+  `xtask_local` inside `nix develop`); `fork-engine.yml` sets each shipped
+  program's RUNPATH to the Nix store libraries it loads (the dev shell's
+  build leaves libssl to `LD_LIBRARY_PATH`, which the runtime container lacks)
+  and runs the check after building, before and after starting the stack,
+  and on a fresh runner that fetches the published set.
 - The sandbox engine is the `--no-doppler` local stack, instance `home`, port
   base 24000, checkout `~/macro-work/macro`, settings (`engine.env`,
   `local.env`, flag file, its own CA) in `~/macro-instance`. The stack needs a
