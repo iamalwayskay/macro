@@ -4,6 +4,7 @@
 # Runs only on pushes to the fork/builds branch.
 name: Fork desktop app
 'on':
+  workflow_dispatch: {}
   push:
     branches:
     - fork/builds
